@@ -5,7 +5,6 @@ import torch
 
 from torch import nn, optim
 from torch.autograd import Variable
-from tensorboardX import SummaryWriter
 from time import gmtime, strftime
 
 from model.BIMPM import BIMPM
@@ -22,11 +21,9 @@ def train(args, data):
     optimizer = optim.Adam(parameters, lr=args.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
-    writer = SummaryWriter(log_dir='runs/' + args.model_time)
-
     model.train()
     loss, last_epoch = 0, -1
-    max_dev_acc, max_test_acc = 0, 0
+    max_dev_acc = 0
 
     iterator = data.train_iter
     for i, batch in enumerate(iterator):
@@ -74,29 +71,19 @@ def train(args, data):
 
         if (i + 1) % args.print_freq == 0:
             dev_loss, dev_acc = test(model, args, data, mode='dev')
-            test_loss, test_acc = test(model, args, data)
             c = (i + 1) // args.print_freq
 
-            writer.add_scalar('loss/train', loss, c)
-            writer.add_scalar('loss/dev', dev_loss, c)
-            writer.add_scalar('acc/dev', dev_acc, c)
-            writer.add_scalar('loss/test', test_loss, c)
-            writer.add_scalar('acc/test', test_acc, c)
-
-            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f} / test loss: {test_loss:.3f}'
-                  f' / dev acc: {dev_acc:.3f} / test acc: {test_acc:.3f}')
+            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f} / dev acc: {dev_acc:.3f}')
 
             if dev_acc > max_dev_acc:
                 max_dev_acc = dev_acc
-                max_test_acc = test_acc
                 best_model = copy.deepcopy(model)
 
             loss = 0
             model.train()
 
-    writer.close()
-    print(f'max dev acc: {max_dev_acc:.3f} / max test acc: {max_test_acc:.3f}')
-
+    print(f'max dev acc: {max_dev_acc:.3f}')
+    
     return best_model
 
 
@@ -115,7 +102,7 @@ def main():
                         help='max length of input sentences model can accept, if -1, it accepts any length')
     parser.add_argument('--num-perspective', default=20, type=int)
     parser.add_argument('--print-freq', default=500, type=int)
-    parser.add_argument('--use-char-emb', default=False, action='store_true')
+    parser.add_argument('--use-char-emb', default=True, action='store_true')
     parser.add_argument('--word-dim', default=300, type=int)
     args = parser.parse_args()
 
@@ -140,8 +127,10 @@ def main():
     if not os.path.exists('saved_models'):
         os.makedirs('saved_models')
     torch.save(best_model.state_dict(), f'saved_models/BIBPM_{args.data_type}_{args.model_time}.pt')
-
     print('training finished!')
+
+    test_loss, test_acc = test(best_model, args, data)
+    print(f'test acc: {test_acc:.3f}')
 
 
 if __name__ == '__main__':
