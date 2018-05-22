@@ -14,41 +14,25 @@ def test(model, args, data, mode='test'):
     else:
         iterator = iter(data.test_iter)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(size_average=False)
     model.eval()
     acc, loss, size = 0, 0, 0
 
     for batch in iterator:
-        if args.data_type == 'SNLI':
-            s1, s2 = 'premise', 'hypothesis'
-        else:
-            s1, s2 = 'q1', 'q2'
-
-        s1, s2 = getattr(batch, s1), getattr(batch, s2)
-        kwargs = {'p': s1, 'h': s2}
-
-        if args.use_char_emb:
-            char_p = Variable(torch.LongTensor(data.characterize(s1)))
-            char_h = Variable(torch.LongTensor(data.characterize(s2)))
-
-            if args.gpu > -1:
-                char_p = char_p.cuda(args.gpu)
-                char_h = char_h.cuda(args.gpu)
-
-            kwargs['char_p'] = char_p
-            kwargs['char_h'] = char_h
+        kwargs = data.get_features(batch)
 
         pred = model(**kwargs)
 
         batch_loss = criterion(pred, batch.label)
-        loss += batch_loss.data[0]
+        loss += batch_loss.item()
 
         _, pred = pred.max(dim=1)
         acc += (pred == batch.label).sum().float()
         size += len(pred)
 
     acc /= size
-    acc = acc.cpu().data[0]
+    acc = acc.cpu().item()
+    loss /= size
     return loss, acc
 
 
@@ -73,6 +57,8 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--hidden-size', default=100, type=int)
     parser.add_argument('--learning-rate', default=0.001, type=float)
+    parser.add_argument('--max-sent-len', default=-1, type=int,
+                        help='max length of input sentences model can accept, if -1, it accepts any length')
     parser.add_argument('--num-perspective', default=20, type=int)
     parser.add_argument('--use-char-emb', default=True, action='store_true')
     parser.add_argument('--word-dim', default=300, type=int)

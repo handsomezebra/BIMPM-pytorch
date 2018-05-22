@@ -4,8 +4,7 @@ import os
 import torch
 
 from torch import nn, optim
-from torch.autograd import Variable
-from time import gmtime, strftime
+import datetime
 
 from model.BIMPM import BIMPM
 from model.utils import SNLI, Quora
@@ -13,6 +12,7 @@ from test import test
 
 
 def train(args, data):
+
     model = BIMPM(args, data)
     if args.gpu > -1:
         model.cuda(args.gpu)
@@ -21,73 +21,49 @@ def train(args, data):
     optimizer = optim.Adam(parameters, lr=args.learning_rate)
     criterion = nn.CrossEntropyLoss()
 
+    # saving the initial model
+    dev_loss, dev_acc = test(model, args, data, mode='dev')
     model.train()
-    loss, last_epoch = 0, -1
-    max_dev_acc = 0
-
-    iterator = data.train_iter
-    for i, batch in enumerate(iterator):
-        present_epoch = int(iterator.epoch)
-        if present_epoch == args.epoch:
-            break
-        if present_epoch > last_epoch:
-            print('epoch:', present_epoch + 1)
-        last_epoch = present_epoch
-
-        if args.data_type == 'SNLI':
-            s1, s2 = 'premise', 'hypothesis'
-        else:
-            s1, s2 = 'q1', 'q2'
-
-        s1, s2 = getattr(batch, s1), getattr(batch, s2)
-
-        # limit the lengths of input sentences up to max_sent_len
-        if args.max_sent_len >= 0:
-            if s1.size()[1] > args.max_sent_len:
-                s1 = s1[:, :args.max_sent_len]
-            if s2.size()[1] > args.max_sent_len:
-                s2 = s2[:, :args.max_sent_len]
-
-        kwargs = {'p': s1, 'h': s2}
-
-        if args.use_char_emb:
-            char_p = Variable(torch.LongTensor(data.characterize(s1)))
-            char_h = Variable(torch.LongTensor(data.characterize(s2)))
-
-            if args.gpu > -1:
-                char_p = char_p.cuda(args.gpu)
-                char_h = char_h.cuda(args.gpu)
-
-            kwargs['char_p'] = char_p
-            kwargs['char_h'] = char_h
-
-        pred = model(**kwargs)
-
-        optimizer.zero_grad()
-        batch_loss = criterion(pred, batch.label)
-        loss += batch_loss.data[0]
-        batch_loss.backward()
-        optimizer.step()
-
-        if (i + 1) % args.print_freq == 0:
-            dev_loss, dev_acc = test(model, args, data, mode='dev')
-            c = (i + 1) // args.print_freq
-
-            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f} / dev acc: {dev_acc:.3f}')
-
-            if dev_acc > max_dev_acc:
-                max_dev_acc = dev_acc
-                best_model = copy.deepcopy(model)
-
-            loss = 0
-            model.train()
-
-    print(f'max dev acc: {max_dev_acc:.3f}')
+    print(f'Init model, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+    best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
     
+    iterator = data.train_iter
+    for epoch in range(args.epoch):
+        print('Start epoch:', epoch)
+        iterator.init_epoch()
+            
+        for i, batch in enumerate(iterator):
+            kwargs = data.get_features(batch)
+
+            pred = model(**kwargs)
+
+            optimizer.zero_grad()
+            batch_loss = criterion(pred, batch.label)
+            current_train_loss = batch_loss.item()
+            batch_loss.backward()
+            optimizer.step()
+
+            if (i + 1) % args.print_freq == 0:
+                # saving the best model after #print_freq batches
+                dev_loss, dev_acc = test(model, args, data, mode='dev')
+                model.train()
+                print(f'Done {i+1} batches, train loss: {current_train_loss:.3f}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+                if dev_acc > best_dev_acc:
+                    best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
+
+        # saving the best model for each epoch
+        dev_loss, dev_acc = test(model, args, data, mode='dev')
+        model.train()
+        print(f'Done {i + 1} batches, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+        if dev_acc > best_dev_acc:
+            best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
+            
+        print(f'Done epoch {epoch}, total train loss: {total_train_loss:.3f}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
+        
     return best_model
 
 
-def main():
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch-size', default=64, type=int)
     parser.add_argument('--char-dim', default=20, type=int)
@@ -119,19 +95,15 @@ def main():
     setattr(args, 'word_vocab_size', len(data.TEXT.vocab))
     setattr(args, 'class_size', len(data.LABEL.vocab))
     setattr(args, 'max_word_len', data.max_word_len)
-    setattr(args, 'model_time', strftime('%H:%M:%S', gmtime()))
+    setattr(args, 'model_time', datetime.datetime.now().strftime("%Y%m%dT%H%M%S"))
 
     print('training start!')
     best_model = train(args, data)
 
     if not os.path.exists('saved_models'):
         os.makedirs('saved_models')
-    torch.save(best_model.state_dict(), f'saved_models/BIBPM_{args.data_type}_{args.model_time}.pt')
+    model_file_name = f'saved_models/BIBPM_{args.data_type}_{args.model_time}.pt'
+    torch.save(best_model.state_dict(), model_file_name)
     print('training finished!')
 
-    test_loss, test_acc = test(best_model, args, data)
-    print(f'test acc: {test_acc:.3f}')
 
-
-if __name__ == '__main__':
-    main()
