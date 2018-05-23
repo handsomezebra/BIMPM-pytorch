@@ -33,7 +33,7 @@ def test(model, args, data, mode='test'):
     acc /= size
     acc = acc.cpu().item()
     loss /= size
-    return loss, acc
+    return loss, acc, size
 
 
 def load_model(args, data):
@@ -82,6 +82,6 @@ if __name__ == '__main__':
     print('loading model...')
     model = load_model(args, data)
 
-    _, acc = test(model, args, data)
+    _, acc, size = test(model, args, data)
 
-    print(f'test acc: {acc:.3f}')
+    print(f'Test samples {size}, accuracy: {acc:.3f}')

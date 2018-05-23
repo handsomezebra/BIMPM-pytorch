@@ -22,17 +22,22 @@ def train(args, data):
     criterion = nn.CrossEntropyLoss()
 
     # saving the initial model
-    dev_loss, dev_acc = test(model, args, data, mode='dev')
+    dev_loss, dev_acc, dev_size = test(model, args, data, mode='dev')
     model.train()
-    print(f'Init model, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+    print(f'Init model, dev samples: {dev_size}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
     best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
     
     iterator = data.train_iter
     for epoch in range(args.epoch):
         print('Start epoch:', epoch)
         iterator.init_epoch()
+        num_of_batch = len(iterator)
+        
+        total_train_loss = 0.0
+        train_size = 0
             
         for i, batch in enumerate(iterator):
+
             kwargs = data.get_features(batch)
 
             pred = model(**kwargs)
@@ -40,25 +45,26 @@ def train(args, data):
             optimizer.zero_grad()
             batch_loss = criterion(pred, batch.label)
             current_train_loss = batch_loss.item()
+            total_train_loss += current_train_loss * len(pred)
+            train_size += len(pred)
             batch_loss.backward()
             optimizer.step()
 
-            if (i + 1) % args.print_freq == 0:
-                # saving the best model after #print_freq batches
-                dev_loss, dev_acc = test(model, args, data, mode='dev')
-                model.train()
-                print(f'Done {i+1} batches, train loss: {current_train_loss:.3f}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+            if (i + 1) % args.print_freq == 0 or (i + 1) == num_of_batch:
+                dev_loss, dev_acc, dev_size = test(model, args, data, mode='dev')
+                model.train()   # switch back to train mode
+                
+                # saving the current model
+                average_train_loss = total_train_loss / train_size
+                print(f'Done batches: {i+1}, train samples: {train_size}, average train loss: {average_train_loss:.3f}, dev samples: {dev_size}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
+                model_file_name = f'{args.model_dir}/BIMPM_{args.data_type}_loss_{dev_loss:.3f}_acc_{dev_acc:.3f}.pt'
+                torch.save(best_model.state_dict(), model_file_name)
+                
+                # saving the best model
                 if dev_acc > best_dev_acc:
                     best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
-
-        # saving the best model for each epoch
-        dev_loss, dev_acc = test(model, args, data, mode='dev')
-        model.train()
-        print(f'Done {i + 1} batches, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
-        if dev_acc > best_dev_acc:
-            best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
             
-        print(f'Done epoch {epoch}, total train loss: {total_train_loss:.3f}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
+        print(f'Done epoch: {epoch}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
         
     return best_model
 
@@ -95,14 +101,15 @@ if __name__ == '__main__':
     setattr(args, 'word_vocab_size', len(data.TEXT.vocab))
     setattr(args, 'class_size', len(data.LABEL.vocab))
     setattr(args, 'max_word_len', data.max_word_len)
-    setattr(args, 'model_time', datetime.datetime.now().strftime("%Y%m%dT%H%M%S"))
-
+    setattr(args, 'model_dir', "saved_models_" + datetime.datetime.now().strftime("%Y%m%dT%H%M%S"))
+    
+    if not os.path.exists(args.model_dir):
+        os.makedirs(args.model_dir)
+        
     print('training start!')
     best_model = train(args, data)
 
-    if not os.path.exists('saved_models'):
-        os.makedirs('saved_models')
-    model_file_name = f'saved_models/BIBPM_{args.data_type}_{args.model_time}.pt'
+    model_file_name = f'{args.model_dir}/BIMPM_{args.data_type}_best.pt'
     torch.save(best_model.state_dict(), model_file_name)
     print('training finished!')
 

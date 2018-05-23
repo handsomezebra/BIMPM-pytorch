@@ -8,6 +8,6 @@
 temp/
 log/
 runs/
-saved_models/
+saved_models*/
 .vector_cache/
 
