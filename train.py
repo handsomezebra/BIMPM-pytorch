@@ -14,7 +14,7 @@ from test import test
 def train(args, data):
 
     model = BIMPM(args, data)
-    if args.gpu > -1:
+    if args.gpu >= 0:
         model.cuda(args.gpu)
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())

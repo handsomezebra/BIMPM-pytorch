@@ -5,7 +5,8 @@ from torchtext import data
 from torchtext import datasets
 from torchtext.vocab import GloVe
 
-from nltk import word_tokenize
+def tokenizer(text): # create a tokenizer function
+    return text.split(' ')
 
 class Paraphrase():
     def __init__(self, args):
@@ -67,7 +68,7 @@ class SNLI(Paraphrase):
     
         super().__init__(args)
         
-        self.TEXT = data.Field(batch_first=True, tokenize=word_tokenize, lower=True)
+        self.TEXT = data.Field(batch_first=True, tokenize="spacy", lower=True)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
@@ -78,7 +79,7 @@ class SNLI(Paraphrase):
         self.train_iter, self.dev_iter, self.test_iter = \
             data.BucketIterator.splits((self.train, self.dev, self.test),
                                        batch_sizes=[args.batch_size] * 3,
-                                       device=args.gpu,
+                                       device=torch.device('cuda', args.gpu) if args.gpu >= 0 else torch.device('cpu'),
                                        repeat=False)
 
         self.max_word_len = max([len(w) for w in self.TEXT.vocab.itos])
@@ -95,7 +96,7 @@ class Quora(Paraphrase):
         super().__init__(args)
 
         self.RAW = data.RawField()
-        self.TEXT = data.Field(batch_first=True)
+        self.TEXT = data.Field(batch_first=True, tokenize=tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = data.TabularDataset.splits(
@@ -117,7 +118,7 @@ class Quora(Paraphrase):
         self.train_iter, self.dev_iter, self.test_iter = \
             data.BucketIterator.splits((self.train, self.dev, self.test),
                                        batch_sizes=[args.batch_size] * 3,
-                                       device=args.gpu,
+                                       device=torch.device('cuda', args.gpu) if args.gpu >= 0 else torch.device('cpu'),
                                        sort_key=sort_key,
                                        repeat=False)
 
