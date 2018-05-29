@@ -49,15 +49,14 @@ def train(model, model_dir, args, data):
                 dev_loss, dev_acc, dev_size = test(model, args, data, mode='dev')
                 model.train()   # switch back to train mode
                 
-                # saving the current model
                 average_train_loss = total_train_loss / train_size
                 print(f'Done batches: {i+1}, train samples: {train_size}, average train loss: {average_train_loss:.3f}, dev samples: {dev_size}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
-                model_file_name = f'{model_dir}/BIMPM_{args.data_type}_loss_{dev_loss:.3f}_acc_{dev_acc:.3f}.pt'
-                torch.save(best_model, model_file_name)
                 
                 # saving the best model
                 if dev_acc > best_dev_acc:
                     best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
+                    model_file_name = f'{model_dir}/BIMPM_{args.data_type}_best.pt'
+                    torch.save(best_model, model_file_name)
             
         print(f'Done epoch: {epoch}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
         
@@ -108,8 +107,8 @@ if __name__ == '__main__':
                   class_size, 
                   word_dim=args.word_dim, 
                   char_dim=args.char_dim, 
-                  max_word_len=args.max_word_len if args.max_word_len > 0 else data.max_word_len, 
-                  max_sent_len=-1,
+                  max_word_len=args.max_word_len, 
+                  max_sent_len=args.max_sent_len,
                   num_perspective=args.num_perspective, 
                   use_char_emb=args.use_char_emb, 
                   hidden_size=args.hidden_size, 

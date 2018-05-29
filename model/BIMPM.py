@@ -19,13 +19,13 @@ class BIMPM(nn.Module):
         self.num_perspective = num_perspective
 
         # ----- Word Representation Layer -----
-        self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
-
         self.word_emb = nn.Embedding(len(pretrained_word_embedding), word_dim)
         # initialize word embedding with GloVe
         self.word_emb.weight.data.copy_(pretrained_word_embedding)
         # no fine-tuning for word vectors
         self.word_emb.weight.requires_grad = False
+
+        self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
 
         self.char_LSTM = nn.LSTM(
             input_size=char_dim,

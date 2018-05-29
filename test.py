@@ -2,9 +2,7 @@ import argparse
 
 import torch
 from torch import nn
-from torch.autograd import Variable
 
-from model.BIMPM import BIMPM
 from model.utils import SNLI, Quora
 
 
@@ -37,21 +35,14 @@ def test(model, args, data, mode='test'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch-size', default=64, type=int)
-    parser.add_argument('--char-dim', default=20, type=int)
-    parser.add_argument('--char-hidden-size', default=50, type=int)
-    parser.add_argument('--dropout', default=0.1, type=float)
-    parser.add_argument('--data-type', default='SNLI', help='available: SNLI or Quora')
-    parser.add_argument('--epoch', default=10, type=int)
-    parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--hidden-size', default=100, type=int)
-    parser.add_argument('--max-sent-len', default=-1, type=int,
-                        help='max length of input sentences model can accept, if -1, it accepts any length')
-    parser.add_argument('--num-perspective', default=20, type=int)
-    parser.add_argument('--use-char-emb', default=True, action='store_true')
-    parser.add_argument('--word-dim', default=300, type=int)
-
     parser.add_argument('--model-path', required=True)
+    parser.add_argument('--batch-size', default=64, type=int)
+    parser.add_argument('--data-type', default='SNLI', help='available: SNLI or Quora')
+    parser.add_argument('--gpu', default=0, type=int)
+    parser.add_argument('--max-sent-len', default=-1, type=int,
+                        help='max number of words per sentence, if -1, it accepts any length')
+    parser.add_argument('--max-word-len', default=-1, type=int,
+                        help='max number of chars per word, if -1, it accepts any length')
 
     args = parser.parse_args()
 

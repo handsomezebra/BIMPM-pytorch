@@ -13,23 +13,32 @@ class Paraphrase():
         self.args = args
 
     def build_char_vocab(self):
-        self.max_word_len = max([len(w) for w in self.TEXT.vocab.itos])
-        # for <pad>
-        self.char_vocab = {'\0': 0}
-        # for <unk> and <pad>
-        self.characterized_words = [[0] * self.max_word_len, [0] * self.max_word_len]
+        # for <pad> and <unk>
+        self.char_vocab = {'<pad>': 0, '<unk>': 1}
         
         # for normal words
         for word in self.TEXT.vocab.itos[2:]:
-            chars = []
             for c in list(word):
                 if c not in self.char_vocab:
                     self.char_vocab[c] = len(self.char_vocab)
 
-                chars.append(self.char_vocab[c])
-
-            chars.extend([0] * (self.max_word_len - len(word)))
-            self.characterized_words.append(chars)
+    def characterize_word(self, word_id, max_word_len):
+        word_text = self.TEXT.vocab.itos[word_id]
+        result = [self.char_vocab.get(ch, 1) for ch in word_text]
+        result.extend([0] * (max_word_len - len(word_text)))
+        return result
+        
+    def characterize(self, batch):
+        """
+        :param batch: Pytorch Variable with shape (batch, seq_len)
+        :return: Pytorch Variable with shape (batch, seq_len, max_word_len)
+        """
+        batch = batch.tolist()
+        max_word_len = max([max([len(self.TEXT.vocab.itos[w]) for w in words]) for words in batch])
+                
+        assert(max_word_len > 0)
+                
+        return [[self.characterize_word(w, max_word_len) for w in words] for words in batch]
 
     def get_features(self, batch):
         if self.args.data_type == 'SNLI':
@@ -52,14 +61,6 @@ class Paraphrase():
         kwargs['char_h'] = char_h
             
         return kwargs
-
-    def characterize(self, batch):
-        """
-        :param batch: Pytorch Variable with shape (batch, seq_len)
-        :return: Pytorch Variable with shape (batch, seq_len, max_word_len)
-        """
-        batch = batch.tolist()
-        return [[self.characterized_words[w] for w in words] for words in batch]
 
 class SNLI(Paraphrase):
     def __init__(self, args):
