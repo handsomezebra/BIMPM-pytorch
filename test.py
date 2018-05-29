@@ -35,17 +35,6 @@ def test(model, args, data, mode='test'):
     loss /= size
     return loss, acc, size
 
-
-def load_model(args, data):
-    model = BIMPM(args, data)
-    model.load_state_dict(torch.load(args.model_path))
-
-    if args.gpu > -1:
-        model.cuda(args.gpu)
-
-    return model
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch-size', default=64, type=int)
@@ -56,7 +45,6 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', default=10, type=int)
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--hidden-size', default=100, type=int)
-    parser.add_argument('--learning-rate', default=0.001, type=float)
     parser.add_argument('--max-sent-len', default=-1, type=int,
                         help='max length of input sentences model can accept, if -1, it accepts any length')
     parser.add_argument('--num-perspective', default=20, type=int)
@@ -68,20 +56,22 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.data_type == 'SNLI':
-        print('loading SNLI data...')
+        print('Loading SNLI data...')
         data = SNLI(args)
     elif args.data_type == 'Quora':
-        print('loading Quora data...')
+        print('Loading Quora data...')
         data = Quora(args)
 
-    setattr(args, 'char_vocab_size', len(data.char_vocab))
-    setattr(args, 'word_vocab_size', len(data.TEXT.vocab))
-    setattr(args, 'class_size', len(data.LABEL.vocab))
-    setattr(args, 'max_word_len', data.max_word_len)
+    print('Loading model...')
+   
+    model = torch.load(args.model_path)
 
-    print('loading model...')
-    model = load_model(args, data)
+    if args.gpu > -1:
+        model.cuda(args.gpu)
 
+    print(model)
+
+    print('Doing prediction...')
     _, acc, size = test(model, args, data)
 
     print(f'Test samples {size}, accuracy: {acc:.3f}')

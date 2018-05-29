@@ -4,33 +4,40 @@ import torch.nn.functional as F
 
 
 class BIMPM(nn.Module):
-    def __init__(self, args, data):
+    def __init__(self, pretrained_word_embedding, char_vocab_size, class_size, 
+                 word_dim=300, char_dim=20, max_word_len=10, max_sent_len=50,
+                 num_perspective=20, use_char_emb=True,  hidden_size=100, char_hidden_size=50, dropout=0.1):
         super(BIMPM, self).__init__()
 
-        self.args = args
-        self.d = self.args.word_dim + int(self.args.use_char_emb) * self.args.char_hidden_size
-        self.l = self.args.num_perspective
+        self.use_char_emb = use_char_emb
+        self.max_word_len = max_word_len # TODO:
+        self.max_sent_len = max_sent_len # TODO:
+        self.hidden_size = hidden_size
+        self.char_hidden_size = char_hidden_size
+        self.dropout = dropout
+        self.word_rep_dim = word_dim + int(use_char_emb) * char_hidden_size
+        self.num_perspective = num_perspective
 
         # ----- Word Representation Layer -----
-        self.char_emb = nn.Embedding(args.char_vocab_size, args.char_dim, padding_idx=0)
+        self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
 
-        self.word_emb = nn.Embedding(args.word_vocab_size, args.word_dim)
+        self.word_emb = nn.Embedding(len(pretrained_word_embedding), word_dim)
         # initialize word embedding with GloVe
-        self.word_emb.weight.data.copy_(data.TEXT.vocab.vectors)
+        self.word_emb.weight.data.copy_(pretrained_word_embedding)
         # no fine-tuning for word vectors
         self.word_emb.weight.requires_grad = False
 
         self.char_LSTM = nn.LSTM(
-            input_size=self.args.char_dim,
-            hidden_size=self.args.char_hidden_size,
+            input_size=char_dim,
+            hidden_size=char_hidden_size,
             num_layers=1,
             bidirectional=False,
             batch_first=True)
 
         # ----- Context Representation Layer -----
         self.context_LSTM = nn.LSTM(
-            input_size=self.d,
-            hidden_size=self.args.hidden_size,
+            input_size=self.word_rep_dim,
+            hidden_size=hidden_size,
             num_layers=1,
             bidirectional=True,
             batch_first=True
@@ -38,21 +45,20 @@ class BIMPM(nn.Module):
 
         # ----- Matching Layer -----
         for i in range(1, 9):
-            setattr(self, f'mp_w{i}',
-                    nn.Parameter(torch.rand(self.l, self.args.hidden_size)))
+            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(num_perspective, hidden_size)))
 
         # ----- Aggregation Layer -----
         self.aggregation_LSTM = nn.LSTM(
-            input_size=self.l * 8,
-            hidden_size=self.args.hidden_size,
+            input_size=num_perspective * 8,
+            hidden_size=hidden_size,
             num_layers=1,
             bidirectional=True,
             batch_first=True
         )
 
         # ----- Prediction Layer -----
-        self.pred_fc1 = nn.Linear(self.args.hidden_size * 4, self.args.hidden_size * 2)
-        self.pred_fc2 = nn.Linear(self.args.hidden_size * 2, self.args.class_size)
+        self.pred_fc1 = nn.Linear(hidden_size * 4, hidden_size * 2)
+        self.pred_fc2 = nn.Linear(hidden_size * 2, class_size)
 
         self.reset_parameters()
 
@@ -104,8 +110,6 @@ class BIMPM(nn.Module):
         nn.init.uniform_(self.pred_fc2.weight, -0.005, 0.005)
         nn.init.constant_(self.pred_fc2.bias, val=0)
 
-    def dropout(self, v):
-        return F.dropout(v, p=self.args.dropout, training=self.training)
 
     def forward(self, **kwargs):
         # ----- Matching Layer -----
@@ -124,7 +128,7 @@ class BIMPM(nn.Module):
                 v2 = torch.stack([v2] * seq_len, dim=1)
 
             m = []
-            for i in range(self.l):
+            for i in range(self.num_perspective):
                 # v1: (batch, seq_len, hidden_size)
                 # v2: (batch, seq_len, hidden_size)
                 # w: (1, 1, hidden_size)
@@ -138,11 +142,11 @@ class BIMPM(nn.Module):
             # (1, 1, hidden_size, l)
             w = w.transpose(1, 0).unsqueeze(0).unsqueeze(0)
             # (batch, seq_len, hidden_size, l)
-            v1 = w * torch.stack([v1] * self.l, dim=3)
+            v1 = w * torch.stack([v1] * self.num_perspective, dim=3)
             if len(v2.size()) == 3:
-                v2 = w * torch.stack([v2] * self.l, dim=3)
+                v2 = w * torch.stack([v2] * self.num_perspective, dim=3)
             else:
-                v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] * self.l, dim=3)
+                v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] * self.num_perspective, dim=3)
 
             m = F.cosine_similarity(v1, v2, dim=2)
 
@@ -159,7 +163,7 @@ class BIMPM(nn.Module):
             # Trick for large memory requirement
             """
             m = []
-            for i in range(self.l):
+            for i in range(self.num_perspective):
                 # (1, 1, hidden_size)
                 w_i = w[i].view(1, 1, -1)
                 # (batch, seq_len1, hidden_size), (batch, seq_len2, hidden_size)
@@ -181,7 +185,7 @@ class BIMPM(nn.Module):
             # (1, l, 1, hidden_size)
             w = w.unsqueeze(0).unsqueeze(2)
             # (batch, l, seq_len, hidden_size)
-            v1, v2 = w * torch.stack([v1] * self.l, dim=1), w * torch.stack([v2] * self.l, dim=1)
+            v1, v2 = w * torch.stack([v1] * self.num_perspective, dim=1), w * torch.stack([v2] * self.num_perspective, dim=1)
             # (batch, l, seq_len, hidden_size->1)
             v1_norm = v1.norm(p=2, dim=3, keepdim=True)
             v2_norm = v2.norm(p=2, dim=3, keepdim=True)
@@ -224,40 +228,47 @@ class BIMPM(nn.Module):
         p = self.word_emb(kwargs['p'])
         h = self.word_emb(kwargs['h'])
 
-        if self.args.use_char_emb:
+        if self.use_char_emb:
+            char_p = kwargs['char_p']
+            char_h = kwargs['char_h']
+            
             # (batch, seq_len, max_word_len) -> (batch * seq_len, max_word_len)
-            seq_len_p = kwargs['char_p'].size(1)
-            seq_len_h = kwargs['char_h'].size(1)
+            seq_len_p = char_p.size(1)
+            seq_len_h = char_h.size(1)
 
-            char_p = kwargs['char_p'].view(-1, self.args.max_word_len)
-            char_h = kwargs['char_h'].view(-1, self.args.max_word_len)
+            char_p = char_p.view(-1, char_p.size(2))
+            char_h = char_h.view(-1, char_h.size(2))
+            
+            # (batch * seq_len, max_word_len) -> (batch * seq_len, max_word_len, char_dim)
+            char_p = self.char_emb(char_p)
+            char_h = self.char_emb(char_h)
 
             # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_hidden_size)
-            _, (char_p, _) = self.char_LSTM(self.char_emb(char_p))
-            _, (char_h, _) = self.char_LSTM(self.char_emb(char_h))
+            _, (char_p, _) = self.char_LSTM(char_p)
+            _, (char_h, _) = self.char_LSTM(char_h)
 
             # (batch, seq_len, char_hidden_size)
-            char_p = char_p.view(-1, seq_len_p, self.args.char_hidden_size)
-            char_h = char_h.view(-1, seq_len_h, self.args.char_hidden_size)
+            char_p = char_p.view(-1, seq_len_p, self.char_hidden_size)
+            char_h = char_h.view(-1, seq_len_h, self.char_hidden_size)
 
             # (batch, seq_len, word_dim + char_hidden_size)
             p = torch.cat([p, char_p], dim=-1)
             h = torch.cat([h, char_h], dim=-1)
 
-        p = self.dropout(p)
-        h = self.dropout(h)
+        p = F.dropout(p, p=self.dropout, training=self.training)
+        h = F.dropout(h, p=self.dropout, training=self.training)
 
         # ----- Context Representation Layer -----
         # (batch, seq_len, hidden_size * 2)
         con_p, _ = self.context_LSTM(p)
         con_h, _ = self.context_LSTM(h)
 
-        con_p = self.dropout(con_p)
-        con_h = self.dropout(con_h)
+        con_p = F.dropout(con_p, p=self.dropout, training=self.training)
+        con_h = F.dropout(con_h, p=self.dropout, training=self.training)
 
         # (batch, seq_len, hidden_size)
-        con_p_fw, con_p_bw = torch.split(con_p, self.args.hidden_size, dim=-1)
-        con_h_fw, con_h_bw = torch.split(con_h, self.args.hidden_size, dim=-1)
+        con_p_fw, con_p_bw = torch.split(con_p, self.hidden_size, dim=-1)
+        con_h_fw, con_h_bw = torch.split(con_h, self.hidden_size, dim=-1)
 
         # 1. Full-Matching
 
@@ -334,8 +345,8 @@ class BIMPM(nn.Module):
             [mv_h_full_fw, mv_h_max_fw, mv_h_att_mean_fw, mv_h_att_max_fw,
              mv_h_full_bw, mv_h_max_bw, mv_h_att_mean_bw, mv_h_att_max_bw], dim=2)
 
-        mv_p = self.dropout(mv_p)
-        mv_h = self.dropout(mv_h)
+        mv_p = F.dropout(mv_p, p=self.dropout, training=self.training)
+        mv_h = F.dropout(mv_h, p=self.dropout, training=self.training)
 
         # ----- Aggregation Layer -----
         # (batch, seq_len, l * 8) -> (2, batch, hidden_size)
@@ -344,13 +355,13 @@ class BIMPM(nn.Module):
 
         # 2 * (2, batch, hidden_size) -> 2 * (batch, hidden_size * 2) -> (batch, hidden_size * 4)
         x = torch.cat(
-            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.args.hidden_size * 2),
-             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.args.hidden_size * 2)], dim=1)
-        x = self.dropout(x)
+            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.hidden_size * 2),
+             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.hidden_size * 2)], dim=1)
+        x = F.dropout(x, p=self.dropout, training=self.training)
 
         # ----- Prediction Layer -----
         x = F.tanh(self.pred_fc1(x))
-        x = self.dropout(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.pred_fc2(x)
 
         return x
