@@ -21,7 +21,7 @@ def train(model, model_dir, args, data):
     dev_loss, dev_acc, dev_size = test(model, args, data, mode='dev')
     model.train()
     print(f'Init model, dev samples: {dev_size}, dev loss: {dev_loss:.3f}, dev acc: {dev_acc:.3f}')
-    best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
+    best_dev_loss, best_dev_acc = dev_loss, dev_acc
     
     iterator = data.train_iter
     for epoch in range(args.epoch):
@@ -54,29 +54,31 @@ def train(model, model_dir, args, data):
                 
                 # saving the best model
                 if dev_acc > best_dev_acc:
-                    best_dev_loss, best_dev_acc, best_model = dev_loss, dev_acc, copy.deepcopy(model)
+                    best_dev_loss, best_dev_acc = dev_loss, dev_acc
                     model_file_name = f'{model_dir}/BIMPM_{args.data_type}_best.pt'
-                    torch.save(best_model, model_file_name)
+                    torch.save(model, model_file_name)
             
         print(f'Done epoch: {epoch}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
         
-    return best_model
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch-size', default=64, type=int)
+    parser.add_argument('--batch-size', default=16, type=int)
     parser.add_argument('--char-dim', default=20, type=int)
-    parser.add_argument('--char-hidden-size', default=50, type=int)
-    parser.add_argument('--data-type', default='SNLI', help='available: SNLI or Quora')
+    parser.add_argument('--char-lstm-dim', default=50, type=int)
+    parser.add_argument('--data-type', default='Quora', help='available: SNLI or Quora')
     parser.add_argument('--dropout', default=0.1, type=float)
     parser.add_argument('--epoch', default=10, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--hidden-size', default=100, type=int)
+    parser.add_argument('--context-lstm-dim', default=120, type=int)
+    parser.add_argument('--context-layer-num', default=2, type=int)
+    parser.add_argument('--aggregation-lstm-dim', default=100, type=int)
+    parser.add_argument('--aggregation-layer-num', default=2, type=int)
     parser.add_argument('--learning-rate', default=0.001, type=float)
-    parser.add_argument('--max-sent-len', default=-1, type=int,
+    parser.add_argument('--max-sent-len', default=100, type=int,
                         help='max number of words per sentence, if -1, it accepts any length')
-    parser.add_argument('--max-word-len', default=-1, type=int,
+    parser.add_argument('--max-word-len', default=10, type=int,
                         help='max number of chars per word, if -1, it accepts any length')
     parser.add_argument('--num-perspective', default=20, type=int)
     parser.add_argument('--print-freq', default=500, type=int)
@@ -108,22 +110,24 @@ if __name__ == '__main__':
                   word_dim=args.word_dim, 
                   char_dim=args.char_dim, 
                   max_word_len=args.max_word_len, 
-                  max_sent_len=args.max_sent_len,
+                  max_sent_len=args.max_sent_len, 
                   num_perspective=args.num_perspective, 
                   use_char_emb=args.use_char_emb, 
-                  hidden_size=args.hidden_size, 
-                  char_hidden_size=args.char_hidden_size, 
-                  dropout=args.dropout)
+                  context_lstm_dim=args.context_lstm_dim, 
+                  context_layer_num=args.context_layer_num, 
+                  aggregation_lstm_dim=args.aggregation_lstm_dim, 
+                  aggregation_layer_num=args.aggregation_layer_num, 
+                  char_lstm_dim=args.char_lstm_dim, 
+                  dropout=args.dropout
+                  )
                   
     if args.gpu >= 0:
         model.cuda(args.gpu)
     print(model)
     
     print('Training start!')
-    best_model = train(model, model_dir, args, data)
+    train(model, model_dir, args, data)
 
-    model_file_name = f'{model_dir}/BIMPM_{args.data_type}_best.pt'
-    torch.save(best_model, model_file_name)
     print('Training finished!')
 
 

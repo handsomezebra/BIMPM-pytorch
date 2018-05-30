@@ -5,17 +5,20 @@ import torch.nn.functional as F
 
 class BIMPM(nn.Module):
     def __init__(self, pretrained_word_embedding, char_vocab_size, class_size, 
-                 word_dim=300, char_dim=20, max_word_len=10, max_sent_len=50,
-                 num_perspective=20, use_char_emb=True,  hidden_size=100, char_hidden_size=50, dropout=0.1):
+                 word_dim=300, char_dim=20, max_word_len=10, max_sent_len=100,
+                 num_perspective=20, use_char_emb=True, context_lstm_dim=100, context_layer_num=2, aggregation_lstm_dim=100, aggregation_layer_num=2, char_lstm_dim=50, dropout=0.1):
         super(BIMPM, self).__init__()
 
         self.use_char_emb = use_char_emb
         self.max_word_len = max_word_len # TODO:
         self.max_sent_len = max_sent_len # TODO:
-        self.hidden_size = hidden_size
-        self.char_hidden_size = char_hidden_size
+        self.context_lstm_dim = context_lstm_dim
+        self.context_layer_num = context_layer_num
+        self.aggregation_lstm_dim = aggregation_lstm_dim
+        self.aggregation_layer_num = aggregation_layer_num
+        self.char_lstm_dim = char_lstm_dim
         self.dropout = dropout
-        self.word_rep_dim = word_dim + int(use_char_emb) * char_hidden_size
+        self.word_rep_dim = word_dim + int(use_char_emb) * char_lstm_dim
         self.num_perspective = num_perspective
 
         # ----- Word Representation Layer -----
@@ -29,7 +32,7 @@ class BIMPM(nn.Module):
 
         self.char_LSTM = nn.LSTM(
             input_size=char_dim,
-            hidden_size=char_hidden_size,
+            hidden_size=char_lstm_dim,
             num_layers=1,
             bidirectional=False,
             batch_first=True)
@@ -37,28 +40,28 @@ class BIMPM(nn.Module):
         # ----- Context Representation Layer -----
         self.context_LSTM = nn.LSTM(
             input_size=self.word_rep_dim,
-            hidden_size=hidden_size,
-            num_layers=1,
+            hidden_size=context_lstm_dim,
+            num_layers=self.context_layer_num,
             bidirectional=True,
             batch_first=True
         )
 
         # ----- Matching Layer -----
         for i in range(1, 9):
-            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(num_perspective, hidden_size)))
+            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(num_perspective, context_lstm_dim)))
 
         # ----- Aggregation Layer -----
         self.aggregation_LSTM = nn.LSTM(
             input_size=num_perspective * 8,
-            hidden_size=hidden_size,
-            num_layers=1,
+            hidden_size=aggregation_lstm_dim,
+            num_layers=self.aggregation_layer_num,
             bidirectional=True,
             batch_first=True
         )
 
         # ----- Prediction Layer -----
-        self.pred_fc1 = nn.Linear(hidden_size * 4, hidden_size * 2)
-        self.pred_fc2 = nn.Linear(hidden_size * 2, class_size)
+        self.pred_fc1 = nn.Linear(aggregation_lstm_dim * 4 * self.aggregation_layer_num, aggregation_lstm_dim * 2 * self.aggregation_layer_num)
+        self.pred_fc2 = nn.Linear(aggregation_lstm_dim * 2 * self.aggregation_layer_num, class_size)
 
         self.reset_parameters()
 
@@ -117,8 +120,8 @@ class BIMPM(nn.Module):
             """
             :param v1: (batch, seq_len, hidden_size)
             :param v2: (batch, seq_len, hidden_size) or (batch, hidden_size)
-            :param w: (l, hidden_size)
-            :return: (batch, l)
+            :param w: (num_perspective, hidden_size)
+            :return: (batch, num_perspective)
             """
             seq_len = v1.size(1)
 
@@ -135,13 +138,13 @@ class BIMPM(nn.Module):
                 # -> (batch, seq_len)
                 m.append(F.cosine_similarity(w[i].view(1, 1, -1) * v1, w[i].view(1, 1, -1) * v2, dim=2))
 
-            # list of (batch, seq_len) -> (batch, seq_len, l)
+            # list of (batch, seq_len) -> (batch, seq_len, num_perspective)
             m = torch.stack(m, dim=2)
             """
 
-            # (1, 1, hidden_size, l)
+            # (1, 1, hidden_size, num_perspective)
             w = w.transpose(1, 0).unsqueeze(0).unsqueeze(0)
-            # (batch, seq_len, hidden_size, l)
+            # (batch, seq_len, hidden_size, num_perspective)
             v1 = w * torch.stack([v1] * self.num_perspective, dim=3)
             if len(v2.size()) == 3:
                 v2 = w * torch.stack([v2] * self.num_perspective, dim=3)
@@ -156,8 +159,8 @@ class BIMPM(nn.Module):
             """
             :param v1: (batch, seq_len1, hidden_size)
             :param v2: (batch, seq_len2, hidden_size)
-            :param w: (l, hidden_size)
-            :return: (batch, l, seq_len1, seq_len2)
+            :param w: (num_perspective, hidden_size)
+            :return: (batch, num_perspective, seq_len1, seq_len2)
             """
 
             # Trick for large memory requirement
@@ -178,23 +181,23 @@ class BIMPM(nn.Module):
 
                 m.append(div_with_small_value(n, d))
 
-            # list of (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, l)
+            # list of (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, num_perspective)
             m = torch.stack(m, dim=3)
             """
 
-            # (1, l, 1, hidden_size)
+            # (1, num_perspective, 1, hidden_size)
             w = w.unsqueeze(0).unsqueeze(2)
-            # (batch, l, seq_len, hidden_size)
+            # (batch, num_perspective, seq_len, hidden_size)
             v1, v2 = w * torch.stack([v1] * self.num_perspective, dim=1), w * torch.stack([v2] * self.num_perspective, dim=1)
-            # (batch, l, seq_len, hidden_size->1)
+            # (batch, num_perspective, seq_len, hidden_size->1)
             v1_norm = v1.norm(p=2, dim=3, keepdim=True)
             v2_norm = v2.norm(p=2, dim=3, keepdim=True)
 
-            # (batch, l, seq_len1, seq_len2)
+            # (batch, num_perspective, seq_len1, seq_len2)
             n = torch.matmul(v1, v2.transpose(2, 3))
             d = v1_norm * v2_norm.transpose(2, 3)
 
-            # (batch, seq_len1, seq_len2, l)
+            # (batch, seq_len1, seq_len2, num_perspective)
             m = div_with_small_value(n, d).permute(0, 2, 3, 1)
 
             return m
@@ -243,15 +246,15 @@ class BIMPM(nn.Module):
             char_p = self.char_emb(char_p)
             char_h = self.char_emb(char_h)
 
-            # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_hidden_size)
+            # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_lstm_dim)
             _, (char_p, _) = self.char_LSTM(char_p)
             _, (char_h, _) = self.char_LSTM(char_h)
 
-            # (batch, seq_len, char_hidden_size)
-            char_p = char_p.view(-1, seq_len_p, self.char_hidden_size)
-            char_h = char_h.view(-1, seq_len_h, self.char_hidden_size)
+            # (batch, seq_len, char_lstm_dim)
+            char_p = char_p.view(-1, seq_len_p, self.char_lstm_dim)
+            char_h = char_h.view(-1, seq_len_h, self.char_lstm_dim)
 
-            # (batch, seq_len, word_dim + char_hidden_size)
+            # (batch, seq_len, word_dim + char_lstm_dim)
             p = torch.cat([p, char_p], dim=-1)
             h = torch.cat([h, char_h], dim=-1)
 
@@ -259,21 +262,21 @@ class BIMPM(nn.Module):
         h = F.dropout(h, p=self.dropout, training=self.training)
 
         # ----- Context Representation Layer -----
-        # (batch, seq_len, hidden_size * 2)
+        # (batch, seq_len, context_lstm_dim * 2)
         con_p, _ = self.context_LSTM(p)
         con_h, _ = self.context_LSTM(h)
 
         con_p = F.dropout(con_p, p=self.dropout, training=self.training)
         con_h = F.dropout(con_h, p=self.dropout, training=self.training)
 
-        # (batch, seq_len, hidden_size)
-        con_p_fw, con_p_bw = torch.split(con_p, self.hidden_size, dim=-1)
-        con_h_fw, con_h_bw = torch.split(con_h, self.hidden_size, dim=-1)
+        # (batch, seq_len, context_lstm_dim)
+        con_p_fw, con_p_bw = torch.split(con_p, self.context_lstm_dim, dim=-1)
+        con_h_fw, con_h_bw = torch.split(con_h, self.context_lstm_dim, dim=-1)
 
         # 1. Full-Matching
 
         # (batch, seq_len, hidden_size), (batch, hidden_size)
-        # -> (batch, seq_len, l)
+        # -> (batch, seq_len, num_perspective)
         mv_p_full_fw = mp_matching_func(con_p_fw, con_h_fw[:, -1, :], self.mp_w1)
         mv_p_full_bw = mp_matching_func(con_p_bw, con_h_bw[:, 0, :], self.mp_w2)
         mv_h_full_fw = mp_matching_func(con_h_fw, con_p_fw[:, -1, :], self.mp_w1)
@@ -281,11 +284,11 @@ class BIMPM(nn.Module):
 
         # 2. Maxpooling-Matching
 
-        # (batch, seq_len1, seq_len2, l)
+        # (batch, seq_len1, seq_len2, num_perspective)
         mv_max_fw = mp_matching_func_pairwise(con_p_fw, con_h_fw, self.mp_w3)
         mv_max_bw = mp_matching_func_pairwise(con_p_bw, con_h_bw, self.mp_w4)
 
-        # (batch, seq_len, l)
+        # (batch, seq_len, num_perspective)
         mv_p_max_fw, _ = mv_max_fw.max(dim=2)
         mv_p_max_bw, _ = mv_max_bw.max(dim=2)
         mv_h_max_fw, _ = mv_max_fw.max(dim=1)
@@ -308,15 +311,17 @@ class BIMPM(nn.Module):
         att_p_fw = con_p_fw.unsqueeze(2) * att_fw.unsqueeze(3)
         att_p_bw = con_p_bw.unsqueeze(2) * att_bw.unsqueeze(3)
 
-        # (batch, seq_len1, hidden_size) / (batch, seq_len1, 1) -> (batch, seq_len1, hidden_size)
+        # (batch, seq_len1, hidden_size) / (batch, seq_len1, 1) -> 
+        # (batch, seq_len1, hidden_size)
         att_mean_h_fw = div_with_small_value(att_h_fw.sum(dim=2), att_fw.sum(dim=2, keepdim=True))
         att_mean_h_bw = div_with_small_value(att_h_bw.sum(dim=2), att_bw.sum(dim=2, keepdim=True))
 
-        # (batch, seq_len2, hidden_size) / (batch, seq_len2, 1) -> (batch, seq_len2, hidden_size)
+        # (batch, seq_len2, hidden_size) / (batch, seq_len2, 1) -> 
+        # (batch, seq_len2, hidden_size)
         att_mean_p_fw = div_with_small_value(att_p_fw.sum(dim=1), att_fw.sum(dim=1, keepdim=True).permute(0, 2, 1))
         att_mean_p_bw = div_with_small_value(att_p_bw.sum(dim=1), att_bw.sum(dim=1, keepdim=True).permute(0, 2, 1))
 
-        # (batch, seq_len, l)
+        # (batch, seq_len, num_perspective)
         mv_p_att_mean_fw = mp_matching_func(con_p_fw, att_mean_h_fw, self.mp_w5)
         mv_p_att_mean_bw = mp_matching_func(con_p_bw, att_mean_h_bw, self.mp_w6)
         mv_h_att_mean_fw = mp_matching_func(con_h_fw, att_mean_p_fw, self.mp_w5)
@@ -331,13 +336,13 @@ class BIMPM(nn.Module):
         att_max_p_fw, _ = att_p_fw.max(dim=1)
         att_max_p_bw, _ = att_p_bw.max(dim=1)
 
-        # (batch, seq_len, l)
+        # (batch, seq_len, num_perspective)
         mv_p_att_max_fw = mp_matching_func(con_p_fw, att_max_h_fw, self.mp_w7)
         mv_p_att_max_bw = mp_matching_func(con_p_bw, att_max_h_bw, self.mp_w8)
         mv_h_att_max_fw = mp_matching_func(con_h_fw, att_max_p_fw, self.mp_w7)
         mv_h_att_max_bw = mp_matching_func(con_h_bw, att_max_p_bw, self.mp_w8)
 
-        # (batch, seq_len, l * 8)
+        # (batch, seq_len, num_perspective * 8)
         mv_p = torch.cat(
             [mv_p_full_fw, mv_p_max_fw, mv_p_att_mean_fw, mv_p_att_max_fw,
              mv_p_full_bw, mv_p_max_bw, mv_p_att_mean_bw, mv_p_att_max_bw], dim=2)
@@ -349,14 +354,18 @@ class BIMPM(nn.Module):
         mv_h = F.dropout(mv_h, p=self.dropout, training=self.training)
 
         # ----- Aggregation Layer -----
-        # (batch, seq_len, l * 8) -> (2, batch, hidden_size)
+        # (batch, seq_len, num_perspective * 8) -> 
+        # (2 * aggregation_layer_num, batch, aggregation_lstm_dim)
         _, (agg_p_last, _) = self.aggregation_LSTM(mv_p)
         _, (agg_h_last, _) = self.aggregation_LSTM(mv_h)
 
-        # 2 * (2, batch, hidden_size) -> 2 * (batch, hidden_size * 2) -> (batch, hidden_size * 4)
+        # 2 * (2 * aggregation_layer_num, batch, aggregation_lstm_dim) -> 
+        # 2 * (batch, aggregation_lstm_dim * 2 * aggregation_layer_num) -> 
+        # (batch, 2 * aggregation_lstm_dim * 2 * aggregation_layer_num)
+        state_multiple = 2 * self.aggregation_layer_num
         x = torch.cat(
-            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.hidden_size * 2),
-             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.hidden_size * 2)], dim=1)
+            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * state_multiple),
+             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * state_multiple)], dim=1)
         x = F.dropout(x, p=self.dropout, training=self.training)
 
         # ----- Prediction Layer -----
