@@ -17,7 +17,7 @@ def test(model, args, data, mode='test'):
     acc, loss, size = 0, 0, 0
 
     for batch in iterator:
-        kwargs = data.get_features(batch)
+        kwargs = data.get_features(batch, max_sent_len=args.max_sent_len, max_word_len=args.max_word_len)
 
         pred = model(**kwargs)
 

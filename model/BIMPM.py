@@ -6,7 +6,7 @@ from .matching_layer import MatchingLayer
 
 class BIMPM(nn.Module):
     def __init__(self, pretrained_word_embedding, char_vocab_size, class_size, 
-                 word_dim=300, char_dim=20, max_word_len=10, max_sent_len=100,
+                 word_dim=300, char_dim=20, 
                  num_perspective=20, use_char_emb=True, context_lstm_dim=100, 
                  context_layer_num=2, aggregation_lstm_dim=100, 
                  aggregation_layer_num=2, char_lstm_dim=50, dropout=0.1):
@@ -14,8 +14,6 @@ class BIMPM(nn.Module):
 
         self.class_size = class_size
         self.use_char_emb = use_char_emb
-        self.max_word_len = max_word_len # TODO:
-        self.max_sent_len = max_sent_len # TODO:
         self.context_lstm_dim = context_lstm_dim
         self.context_layer_num = context_layer_num
         self.aggregation_lstm_dim = aggregation_lstm_dim

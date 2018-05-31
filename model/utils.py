@@ -24,34 +24,40 @@ class Paraphrase():
 
     def characterize_word(self, word_id, max_word_len):
         word_text = self.TEXT.vocab.itos[word_id]
-        result = [self.char_vocab.get(ch, 1) for ch in word_text]
-        result.extend([0] * (max_word_len - len(word_text)))
+        result = [self.char_vocab.get(ch, 1) for ch in word_text[:max_word_len]]
+        result.extend([0] * (max_word_len - len(result)))
         return result
         
-    def characterize(self, batch):
+    def characterize(self, batch, max_word_len):
         """
         :param batch: Pytorch Variable with shape (batch, seq_len)
         :return: Pytorch Variable with shape (batch, seq_len, max_word_len)
         """
         batch = batch.tolist()
-        max_word_len = max([max([len(self.TEXT.vocab.itos[w]) for w in words]) for words in batch])
+        
+        if max_word_len <= 0:
+            max_word_len = max([max([len(self.TEXT.vocab.itos[w]) for w in words]) for words in batch])
                 
         assert(max_word_len > 0)
                 
         return [[self.characterize_word(w, max_word_len) for w in words] for words in batch]
 
-    def get_features(self, batch):
+    def get_features(self, batch, max_sent_len = -1, max_word_len = -1):
         if self.args.data_type == 'SNLI':
             s1, s2 = 'premise', 'hypothesis'
         else:
             s1, s2 = 'q1', 'q2'
             
         s1, s2 = getattr(batch, s1), getattr(batch, s2)
-
+        
+        if max_sent_len > 0:
+            s1 = s1[:, :max_sent_len]
+            s2 = s2[:, :max_sent_len]
+        
         kwargs = {'p': s1, 'h': s2}
 
-        char_p = Variable(torch.LongTensor(self.characterize(s1)))
-        char_h = Variable(torch.LongTensor(self.characterize(s2)))
+        char_p = Variable(torch.LongTensor(self.characterize(s1, max_word_len)))
+        char_h = Variable(torch.LongTensor(self.characterize(s2, max_word_len)))
 
         if self.args.gpu > -1:
             char_p = char_p.cuda(self.args.gpu)
