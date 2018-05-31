@@ -2,13 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .matching_layer import MatchingLayer
 
 class BIMPM(nn.Module):
     def __init__(self, pretrained_word_embedding, char_vocab_size, class_size, 
                  word_dim=300, char_dim=20, max_word_len=10, max_sent_len=100,
-                 num_perspective=20, use_char_emb=True, context_lstm_dim=100, context_layer_num=2, aggregation_lstm_dim=100, aggregation_layer_num=2, char_lstm_dim=50, dropout=0.1):
+                 num_perspective=20, use_char_emb=True, context_lstm_dim=100, 
+                 context_layer_num=2, aggregation_lstm_dim=100, 
+                 aggregation_layer_num=2, char_lstm_dim=50, dropout=0.1):
         super(BIMPM, self).__init__()
 
+        self.class_size = class_size
         self.use_char_emb = use_char_emb
         self.max_word_len = max_word_len # TODO:
         self.max_sent_len = max_sent_len # TODO:
@@ -47,8 +51,11 @@ class BIMPM(nn.Module):
         )
 
         # ----- Matching Layer -----
-        for i in range(1, 9):
-            setattr(self, f'mp_w{i}', nn.Parameter(torch.rand(num_perspective, context_lstm_dim)))
+        self.matching_layer = MatchingLayer(
+            hidden_dim=self.context_lstm_dim, 
+            num_perspective=self.num_perspective, 
+            dropout=self.dropout
+        )
 
         # ----- Aggregation Layer -----
         self.aggregation_LSTM = nn.LSTM(
@@ -60,12 +67,18 @@ class BIMPM(nn.Module):
         )
 
         # ----- Prediction Layer -----
-        self.pred_fc1 = nn.Linear(aggregation_lstm_dim * 4 * self.aggregation_layer_num, aggregation_lstm_dim * 2 * self.aggregation_layer_num)
-        self.pred_fc2 = nn.Linear(aggregation_lstm_dim * 2 * self.aggregation_layer_num, class_size)
+        self.pred_fc1 = nn.Linear(
+            self.aggregation_lstm_dim * 4 * self.aggregation_layer_num, 
+            self.aggregation_lstm_dim * 2 * self.aggregation_layer_num
+        )
+        self.pred_fc2 = nn.Linear(
+            self.aggregation_lstm_dim * 2 * self.aggregation_layer_num, 
+            self.class_size
+        )
 
-        self.reset_parameters()
+        self.init_parameters()
 
-    def reset_parameters(self):
+    def init_parameters(self):
         # ----- Word Representation Layer -----
         nn.init.uniform_(self.char_emb.weight, -0.005, 0.005)
         # zero vectors for padding
@@ -90,11 +103,6 @@ class BIMPM(nn.Module):
         nn.init.orthogonal_(self.context_LSTM.weight_hh_l0_reverse)
         nn.init.constant_(self.context_LSTM.bias_hh_l0_reverse, val=0)
 
-        # ----- Matching Layer -----
-        for i in range(1, 9):
-            w = getattr(self, f'mp_w{i}')
-            nn.init.kaiming_normal_(w)
-
         # ----- Aggregation Layer -----
         nn.init.kaiming_normal_(self.aggregation_LSTM.weight_ih_l0)
         nn.init.constant_(self.aggregation_LSTM.bias_ih_l0, val=0)
@@ -112,265 +120,85 @@ class BIMPM(nn.Module):
 
         nn.init.uniform_(self.pred_fc2.weight, -0.005, 0.005)
         nn.init.constant_(self.pred_fc2.bias, val=0)
+        
+    def char_repr(self, char_data):
+        # char_data: (batch, seq_len, max_word_len)
+        seq_len, word_len = char_data.size(1), char_data.size(2)
 
+        # (batch, seq_len, max_word_len) -> (batch * seq_len, max_word_len)
+        char_data = char_data.view(-1, word_len)
+        
+        # (batch * seq_len, max_word_len) -> (batch * seq_len, max_word_len, char_dim)
+        char_data = self.char_emb(char_data)
 
-    def forward(self, **kwargs):
-        # ----- Matching Layer -----
-        def mp_matching_func(v1, v2, w):
-            """
-            :param v1: (batch, seq_len, hidden_size)
-            :param v2: (batch, seq_len, hidden_size) or (batch, hidden_size)
-            :param w: (num_perspective, hidden_size)
-            :return: (batch, num_perspective)
-            """
-            seq_len = v1.size(1)
+        # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_lstm_dim)
+        _, (char_data, _) = self.char_LSTM(char_data)
 
-            # Trick for large memory requirement
-            """
-            if len(v2.size()) == 2:
-                v2 = torch.stack([v2] * seq_len, dim=1)
-
-            m = []
-            for i in range(self.num_perspective):
-                # v1: (batch, seq_len, hidden_size)
-                # v2: (batch, seq_len, hidden_size)
-                # w: (1, 1, hidden_size)
-                # -> (batch, seq_len)
-                m.append(F.cosine_similarity(w[i].view(1, 1, -1) * v1, w[i].view(1, 1, -1) * v2, dim=2))
-
-            # list of (batch, seq_len) -> (batch, seq_len, num_perspective)
-            m = torch.stack(m, dim=2)
-            """
-
-            # (1, 1, hidden_size, num_perspective)
-            w = w.transpose(1, 0).unsqueeze(0).unsqueeze(0)
-            # (batch, seq_len, hidden_size, num_perspective)
-            v1 = w * torch.stack([v1] * self.num_perspective, dim=3)
-            if len(v2.size()) == 3:
-                v2 = w * torch.stack([v2] * self.num_perspective, dim=3)
-            else:
-                v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] * self.num_perspective, dim=3)
-
-            m = F.cosine_similarity(v1, v2, dim=2)
-
-            return m
-
-        def mp_matching_func_pairwise(v1, v2, w):
-            """
-            :param v1: (batch, seq_len1, hidden_size)
-            :param v2: (batch, seq_len2, hidden_size)
-            :param w: (num_perspective, hidden_size)
-            :return: (batch, num_perspective, seq_len1, seq_len2)
-            """
-
-            # Trick for large memory requirement
-            """
-            m = []
-            for i in range(self.num_perspective):
-                # (1, 1, hidden_size)
-                w_i = w[i].view(1, 1, -1)
-                # (batch, seq_len1, hidden_size), (batch, seq_len2, hidden_size)
-                v1, v2 = w_i * v1, w_i * v2
-                # (batch, seq_len, hidden_size->1)
-                v1_norm = v1.norm(p=2, dim=2, keepdim=True)
-                v2_norm = v2.norm(p=2, dim=2, keepdim=True)
-
-                # (batch, seq_len1, seq_len2)
-                n = torch.matmul(v1, v2.permute(0, 2, 1))
-                d = v1_norm * v2_norm.permute(0, 2, 1)
-
-                m.append(div_with_small_value(n, d))
-
-            # list of (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, num_perspective)
-            m = torch.stack(m, dim=3)
-            """
-
-            # (1, num_perspective, 1, hidden_size)
-            w = w.unsqueeze(0).unsqueeze(2)
-            # (batch, num_perspective, seq_len, hidden_size)
-            v1, v2 = w * torch.stack([v1] * self.num_perspective, dim=1), w * torch.stack([v2] * self.num_perspective, dim=1)
-            # (batch, num_perspective, seq_len, hidden_size->1)
-            v1_norm = v1.norm(p=2, dim=3, keepdim=True)
-            v2_norm = v2.norm(p=2, dim=3, keepdim=True)
-
-            # (batch, num_perspective, seq_len1, seq_len2)
-            n = torch.matmul(v1, v2.transpose(2, 3))
-            d = v1_norm * v2_norm.transpose(2, 3)
-
-            # (batch, seq_len1, seq_len2, num_perspective)
-            m = div_with_small_value(n, d).permute(0, 2, 3, 1)
-
-            return m
-
-        def attention(v1, v2):
-            """
-            :param v1: (batch, seq_len1, hidden_size)
-            :param v2: (batch, seq_len2, hidden_size)
-            :return: (batch, seq_len1, seq_len2)
-            """
-
-            # (batch, seq_len1, 1)
-            v1_norm = v1.norm(p=2, dim=2, keepdim=True)
-            # (batch, 1, seq_len2)
-            v2_norm = v2.norm(p=2, dim=2, keepdim=True).permute(0, 2, 1)
-
-            # (batch, seq_len1, seq_len2)
-            a = torch.bmm(v1, v2.permute(0, 2, 1))
-            d = v1_norm * v2_norm
-
-            return div_with_small_value(a, d)
-
-        def div_with_small_value(n, d, eps=1e-8):
-            # too small values are replaced by 1e-8 to prevent it from exploding.
-            d = d * (d > eps).float() + eps * (d <= eps).float()
-            return n / d
-
-        # ----- Word Representation Layer -----
+        # (batch, seq_len, char_lstm_dim)
+        char_data = char_data.view(-1, seq_len, self.char_lstm_dim)
+        
+        return char_data
+        
+    def context_repr(self, word_data, char_data):
         # (batch, seq_len) -> (batch, seq_len, word_dim)
-
-        p = self.word_emb(kwargs['p'])
-        h = self.word_emb(kwargs['h'])
+        context_data = self.word_emb(word_data)
 
         if self.use_char_emb:
-            char_p = kwargs['char_p']
-            char_h = kwargs['char_h']
+            char_data = self.char_repr(char_data)
             
-            # (batch, seq_len, max_word_len) -> (batch * seq_len, max_word_len)
-            seq_len_p = char_p.size(1)
-            seq_len_h = char_h.size(1)
-
-            char_p = char_p.view(-1, char_p.size(2))
-            char_h = char_h.view(-1, char_h.size(2))
-            
-            # (batch * seq_len, max_word_len) -> (batch * seq_len, max_word_len, char_dim)
-            char_p = self.char_emb(char_p)
-            char_h = self.char_emb(char_h)
-
-            # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_lstm_dim)
-            _, (char_p, _) = self.char_LSTM(char_p)
-            _, (char_h, _) = self.char_LSTM(char_h)
-
-            # (batch, seq_len, char_lstm_dim)
-            char_p = char_p.view(-1, seq_len_p, self.char_lstm_dim)
-            char_h = char_h.view(-1, seq_len_h, self.char_lstm_dim)
-
             # (batch, seq_len, word_dim + char_lstm_dim)
-            p = torch.cat([p, char_p], dim=-1)
-            h = torch.cat([h, char_h], dim=-1)
+            context_data = torch.cat([context_data, char_data], dim=-1)
 
-        p = F.dropout(p, p=self.dropout, training=self.training)
-        h = F.dropout(h, p=self.dropout, training=self.training)
+        context_data = F.dropout(context_data, p=self.dropout, training=self.training)
 
         # ----- Context Representation Layer -----
         # (batch, seq_len, context_lstm_dim * 2)
-        con_p, _ = self.context_LSTM(p)
-        con_h, _ = self.context_LSTM(h)
+        context_data, _ = self.context_LSTM(context_data)
 
-        con_p = F.dropout(con_p, p=self.dropout, training=self.training)
-        con_h = F.dropout(con_h, p=self.dropout, training=self.training)
+        context_data = F.dropout(context_data, p=self.dropout, training=self.training)
+        
+        return context_data
 
-        # (batch, seq_len, context_lstm_dim)
-        con_p_fw, con_p_bw = torch.split(con_p, self.context_lstm_dim, dim=-1)
-        con_h_fw, con_h_bw = torch.split(con_h, self.context_lstm_dim, dim=-1)
+    def forward(self, **kwargs):
 
-        # 1. Full-Matching
+        # ----- Context Representation Layer -----
+        p, h, char_p, char_h = kwargs['p'], kwargs['h'], kwargs['char_p'], kwargs['char_h']
+        assert p.size(0) == h.size(0) and p.size(1) == char_p.size(1) and h.size(1) == char_h.size(1)
+        batch_size, seq_len_p, seq_len_h = p.size(0), p.size(1), h.size(1)
+        
+        # (batch, seq_len) -> (batch, seq_len, context_lstm_dim * 2)
+        con_p = self.context_repr(p, char_p)
+        con_h = self.context_repr(h, char_h)
+        assert con_p.size() == (batch_size, seq_len_p, self.context_lstm_dim * 2)
+        assert con_h.size() == (batch_size, seq_len_h, self.context_lstm_dim * 2)
 
-        # (batch, seq_len, hidden_size), (batch, hidden_size)
-        # -> (batch, seq_len, num_perspective)
-        mv_p_full_fw = mp_matching_func(con_p_fw, con_h_fw[:, -1, :], self.mp_w1)
-        mv_p_full_bw = mp_matching_func(con_p_bw, con_h_bw[:, 0, :], self.mp_w2)
-        mv_h_full_fw = mp_matching_func(con_h_fw, con_p_fw[:, -1, :], self.mp_w1)
-        mv_h_full_bw = mp_matching_func(con_h_bw, con_p_bw[:, 0, :], self.mp_w2)
-
-        # 2. Maxpooling-Matching
-
-        # (batch, seq_len1, seq_len2, num_perspective)
-        mv_max_fw = mp_matching_func_pairwise(con_p_fw, con_h_fw, self.mp_w3)
-        mv_max_bw = mp_matching_func_pairwise(con_p_bw, con_h_bw, self.mp_w4)
-
-        # (batch, seq_len, num_perspective)
-        mv_p_max_fw, _ = mv_max_fw.max(dim=2)
-        mv_p_max_bw, _ = mv_max_bw.max(dim=2)
-        mv_h_max_fw, _ = mv_max_fw.max(dim=1)
-        mv_h_max_bw, _ = mv_max_bw.max(dim=1)
-
-        # 3. Attentive-Matching
-
-        # (batch, seq_len1, seq_len2)
-        att_fw = attention(con_p_fw, con_h_fw)
-        att_bw = attention(con_p_bw, con_h_bw)
-
-        # (batch, seq_len2, hidden_size) -> (batch, 1, seq_len2, hidden_size)
-        # (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, 1)
-        # -> (batch, seq_len1, seq_len2, hidden_size)
-        att_h_fw = con_h_fw.unsqueeze(1) * att_fw.unsqueeze(3)
-        att_h_bw = con_h_bw.unsqueeze(1) * att_bw.unsqueeze(3)
-        # (batch, seq_len1, hidden_size) -> (batch, seq_len1, 1, hidden_size)
-        # (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, 1)
-        # -> (batch, seq_len1, seq_len2, hidden_size)
-        att_p_fw = con_p_fw.unsqueeze(2) * att_fw.unsqueeze(3)
-        att_p_bw = con_p_bw.unsqueeze(2) * att_bw.unsqueeze(3)
-
-        # (batch, seq_len1, hidden_size) / (batch, seq_len1, 1) -> 
-        # (batch, seq_len1, hidden_size)
-        att_mean_h_fw = div_with_small_value(att_h_fw.sum(dim=2), att_fw.sum(dim=2, keepdim=True))
-        att_mean_h_bw = div_with_small_value(att_h_bw.sum(dim=2), att_bw.sum(dim=2, keepdim=True))
-
-        # (batch, seq_len2, hidden_size) / (batch, seq_len2, 1) -> 
-        # (batch, seq_len2, hidden_size)
-        att_mean_p_fw = div_with_small_value(att_p_fw.sum(dim=1), att_fw.sum(dim=1, keepdim=True).permute(0, 2, 1))
-        att_mean_p_bw = div_with_small_value(att_p_bw.sum(dim=1), att_bw.sum(dim=1, keepdim=True).permute(0, 2, 1))
-
-        # (batch, seq_len, num_perspective)
-        mv_p_att_mean_fw = mp_matching_func(con_p_fw, att_mean_h_fw, self.mp_w5)
-        mv_p_att_mean_bw = mp_matching_func(con_p_bw, att_mean_h_bw, self.mp_w6)
-        mv_h_att_mean_fw = mp_matching_func(con_h_fw, att_mean_p_fw, self.mp_w5)
-        mv_h_att_mean_bw = mp_matching_func(con_h_bw, att_mean_p_bw, self.mp_w6)
-
-        # 4. Max-Attentive-Matching
-
-        # (batch, seq_len1, hidden_size)
-        att_max_h_fw, _ = att_h_fw.max(dim=2)
-        att_max_h_bw, _ = att_h_bw.max(dim=2)
-        # (batch, seq_len2, hidden_size)
-        att_max_p_fw, _ = att_p_fw.max(dim=1)
-        att_max_p_bw, _ = att_p_bw.max(dim=1)
-
-        # (batch, seq_len, num_perspective)
-        mv_p_att_max_fw = mp_matching_func(con_p_fw, att_max_h_fw, self.mp_w7)
-        mv_p_att_max_bw = mp_matching_func(con_p_bw, att_max_h_bw, self.mp_w8)
-        mv_h_att_max_fw = mp_matching_func(con_h_fw, att_max_p_fw, self.mp_w7)
-        mv_h_att_max_bw = mp_matching_func(con_h_bw, att_max_p_bw, self.mp_w8)
-
-        # (batch, seq_len, num_perspective * 8)
-        mv_p = torch.cat(
-            [mv_p_full_fw, mv_p_max_fw, mv_p_att_mean_fw, mv_p_att_max_fw,
-             mv_p_full_bw, mv_p_max_bw, mv_p_att_mean_bw, mv_p_att_max_bw], dim=2)
-        mv_h = torch.cat(
-            [mv_h_full_fw, mv_h_max_fw, mv_h_att_mean_fw, mv_h_att_max_fw,
-             mv_h_full_bw, mv_h_max_bw, mv_h_att_mean_bw, mv_h_att_max_bw], dim=2)
-
-        mv_p = F.dropout(mv_p, p=self.dropout, training=self.training)
-        mv_h = F.dropout(mv_h, p=self.dropout, training=self.training)
+        # (batch, seq_len, context_lstm_dim * 2) -> (batch, seq_len, num_perspective * 8)
+        mv_p, mv_h = self.matching_layer(con_p, con_h)
+        assert mv_p.size() == (batch_size, seq_len_p, self.num_perspective * 8)
+        assert mv_h.size() == (batch_size, seq_len_h, self.num_perspective * 8)
 
         # ----- Aggregation Layer -----
         # (batch, seq_len, num_perspective * 8) -> 
         # (2 * aggregation_layer_num, batch, aggregation_lstm_dim)
         _, (agg_p_last, _) = self.aggregation_LSTM(mv_p)
         _, (agg_h_last, _) = self.aggregation_LSTM(mv_h)
+        assert agg_p_last.size() == agg_h_last.size() == (2 * self.aggregation_layer_num, batch_size, self.aggregation_lstm_dim)
 
         # 2 * (2 * aggregation_layer_num, batch, aggregation_lstm_dim) -> 
         # 2 * (batch, aggregation_lstm_dim * 2 * aggregation_layer_num) -> 
         # (batch, 2 * aggregation_lstm_dim * 2 * aggregation_layer_num)
-        state_multiple = 2 * self.aggregation_layer_num
         x = torch.cat(
-            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * state_multiple),
-             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * state_multiple)], dim=1)
+            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num),
+             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)], dim=1)
         x = F.dropout(x, p=self.dropout, training=self.training)
+        assert x.size() == (batch_size, 2 * self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
 
         # ----- Prediction Layer -----
         x = F.tanh(self.pred_fc1(x))
         x = F.dropout(x, p=self.dropout, training=self.training)
+        assert x.size() == (batch_size, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
+        
         x = self.pred_fc2(x)
+        assert x.size() == (batch_size, self.class_size)
 
         return x
