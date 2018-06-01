@@ -61,7 +61,6 @@ def train(model, model_dir, args, data):
         print(f'Done epoch: {epoch}, best dev loss: {best_dev_loss:.3f}, best dev acc: {best_dev_acc:.3f}')
         
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch-size', default=16, type=int)
@@ -82,7 +81,7 @@ if __name__ == '__main__':
                         help='max number of chars per word, if -1, it accepts any length')
     parser.add_argument('--num-perspective', default=20, type=int)
     parser.add_argument('--print-freq', default=500, type=int)
-    parser.add_argument('--use-char-emb', default=True, action='store_true')
+    parser.add_argument('--wo-char', default=False, action='store_true')
     parser.add_argument('--word-dim', default=300, type=int)
     args = parser.parse_args()
 
@@ -110,7 +109,7 @@ if __name__ == '__main__':
                   word_dim=args.word_dim, 
                   char_dim=args.char_dim, 
                   num_perspective=args.num_perspective, 
-                  use_char_emb=args.use_char_emb, 
+                  use_char_emb=(not args.wo_char), 
                   context_lstm_dim=args.context_lstm_dim, 
                   context_layer_num=args.context_layer_num, 
                   aggregation_lstm_dim=args.aggregation_lstm_dim, 

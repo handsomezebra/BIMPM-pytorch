@@ -5,11 +5,13 @@ import torch.nn.functional as F
 from .matching_layer import MatchingLayer
 
 class BIMPM(nn.Module):
-    def __init__(self, pretrained_word_embedding, char_vocab_size, class_size, 
-                 word_dim=300, char_dim=20, 
-                 num_perspective=20, use_char_emb=True, context_lstm_dim=100, 
-                 context_layer_num=2, aggregation_lstm_dim=100, 
-                 aggregation_layer_num=2, char_lstm_dim=50, dropout=0.1):
+    def __init__(self, 
+        pretrained_word_embedding, char_vocab_size, class_size, 
+        num_perspective=20, word_dim=300, dropout=0.1, 
+        use_char_emb=True, char_dim=20, char_lstm_dim=50, 
+        context_lstm_dim=100, context_layer_num=2, 
+        aggregation_lstm_dim=100, aggregation_layer_num=2, 
+    ):
         super(BIMPM, self).__init__()
 
         self.class_size = class_size
@@ -30,14 +32,15 @@ class BIMPM(nn.Module):
         # no fine-tuning for word vectors
         self.word_emb.weight.requires_grad = False
 
-        self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
+        if use_char_emb:
+            self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
 
-        self.char_LSTM = nn.LSTM(
-            input_size=char_dim,
-            hidden_size=char_lstm_dim,
-            num_layers=1,
-            bidirectional=False,
-            batch_first=True)
+            self.char_LSTM = nn.LSTM(
+                input_size=char_dim,
+                hidden_size=char_lstm_dim,
+                num_layers=1,
+                bidirectional=False,
+                batch_first=True)
 
         # ----- Context Representation Layer -----
         self.context_LSTM = nn.LSTM(
@@ -78,17 +81,19 @@ class BIMPM(nn.Module):
 
     def init_parameters(self):
         # ----- Word Representation Layer -----
-        nn.init.uniform_(self.char_emb.weight, -0.005, 0.005)
-        # zero vectors for padding
-        self.char_emb.weight.data[0].fill_(0)
 
         # <unk> vectors is randomly initialized
         nn.init.uniform_(self.word_emb.weight.data[0], -0.1, 0.1)
 
-        nn.init.kaiming_normal_(self.char_LSTM.weight_ih_l0)
-        nn.init.constant_(self.char_LSTM.bias_ih_l0, val=0)
-        nn.init.orthogonal_(self.char_LSTM.weight_hh_l0)
-        nn.init.constant_(self.char_LSTM.bias_hh_l0, val=0)
+        if self.use_char_emb:
+            nn.init.uniform_(self.char_emb.weight, -0.005, 0.005)
+            # zero vectors for padding
+            self.char_emb.weight.data[0].fill_(0)
+            
+            nn.init.kaiming_normal_(self.char_LSTM.weight_ih_l0)
+            nn.init.constant_(self.char_LSTM.bias_ih_l0, val=0)
+            nn.init.orthogonal_(self.char_LSTM.weight_hh_l0)
+            nn.init.constant_(self.char_LSTM.bias_hh_l0, val=0)
 
         # ----- Context Representation Layer -----
         nn.init.kaiming_normal_(self.context_LSTM.weight_ih_l0)
@@ -160,9 +165,15 @@ class BIMPM(nn.Module):
     def forward(self, **kwargs):
 
         # ----- Context Representation Layer -----
-        p, h, char_p, char_h = kwargs['p'], kwargs['h'], kwargs['char_p'], kwargs['char_h']
-        assert p.size(0) == h.size(0) and p.size(1) == char_p.size(1) and h.size(1) == char_h.size(1)
+        p, h = kwargs['p'], kwargs['h']
+        assert p.size(0) == h.size(0) 
         batch_size, seq_len_p, seq_len_h = p.size(0), p.size(1), h.size(1)
+        
+        if self.use_char_emb:
+            char_p, char_h = kwargs['char_p'], kwargs['char_h']
+            assert p.size(1) == char_p.size(1) and h.size(1) == char_h.size(1)
+        else:
+            char_p, char_h = None, None
         
         # (batch, seq_len) -> (batch, seq_len, context_lstm_dim * 2)
         con_p = self.context_repr(p, char_p)
