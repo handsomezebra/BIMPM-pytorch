@@ -83,6 +83,10 @@ if __name__ == '__main__':
     parser.add_argument('--print-freq', default=500, type=int)
     parser.add_argument('--wo-char', default=False, action='store_true')
     parser.add_argument('--word-dim', default=300, type=int)
+    parser.add_argument('--wo-full-match', default=False, action='store_true')
+    parser.add_argument('--wo-maxpool-match', default=False, action='store_true')
+    parser.add_argument('--wo-attentive-match', default=False, action='store_true')
+    parser.add_argument('--wo-max-attentive-match', default=False, action='store_true')
     args = parser.parse_args()
 
     if args.data_type == 'SNLI':
@@ -93,6 +97,9 @@ if __name__ == '__main__':
         data = Quora(args)
     else:
         raise NotImplementedError('only SNLI or Quora data is possible')
+        
+    if int(args.wo_full_match) + int(args.wo_maxpool_match) + int(args.wo_attentive_match) + int(args.wo_max_attentive_match) > 1:
+        raise ValueError('Only one of the matching can be disabled')
 
     model_dir = "saved_models_" + datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
     if not os.path.exists(model_dir):
@@ -115,7 +122,11 @@ if __name__ == '__main__':
                   aggregation_lstm_dim=args.aggregation_lstm_dim, 
                   aggregation_layer_num=args.aggregation_layer_num, 
                   char_lstm_dim=args.char_lstm_dim, 
-                  dropout=args.dropout
+                  dropout=args.dropout,
+                  wo_full_match=args.wo_full_match,
+                  wo_maxpool_match=args.wo_maxpool_match,
+                  wo_attentive_match=args.wo_attentive_match,
+                  wo_max_attentive_match=args.wo_max_attentive_match,
                   )
                   
     if args.gpu >= 0:
@@ -127,4 +138,15 @@ if __name__ == '__main__':
 
     print('Training finished!')
 
+    print('Start prediction using best model')
 
+    best_model = torch.load(f'{model_dir}/BIMPM_{args.data_type}_best.pt')
+
+    if args.gpu > -1:
+        best_model.cuda(args.gpu)
+
+    print(best_model)
+
+    _, acc, size = test(best_model, args, data)
+
+    print(f'Test samples {size}, accuracy: {acc:.3f}')

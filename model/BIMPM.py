@@ -11,6 +11,8 @@ class BIMPM(nn.Module):
         use_char_emb=True, char_dim=20, char_lstm_dim=50, 
         context_lstm_dim=100, context_layer_num=2, 
         aggregation_lstm_dim=100, aggregation_layer_num=2, 
+        wo_full_match=False, wo_maxpool_match=False, 
+        wo_attentive_match=False, wo_max_attentive_match=False
     ):
         super(BIMPM, self).__init__()
 
@@ -24,6 +26,8 @@ class BIMPM(nn.Module):
         self.dropout = dropout
         self.word_rep_dim = word_dim + int(use_char_emb) * char_lstm_dim
         self.num_perspective = num_perspective
+        self.num_matching = 8 - 2 * (int(wo_full_match) + int(wo_maxpool_match) + int(wo_attentive_match) + int(wo_max_attentive_match))
+        assert self.num_matching > 0
 
         # ----- Word Representation Layer -----
         self.word_emb = nn.Embedding(len(pretrained_word_embedding), word_dim)
@@ -55,12 +59,16 @@ class BIMPM(nn.Module):
         self.matching_layer = MatchingLayer(
             hidden_dim=self.context_lstm_dim, 
             num_perspective=self.num_perspective, 
-            dropout=self.dropout
+            dropout=self.dropout,
+            wo_full_match=wo_full_match,
+            wo_maxpool_match=wo_maxpool_match,
+            wo_attentive_match=wo_attentive_match,
+            wo_max_attentive_match=wo_max_attentive_match,
         )
 
         # ----- Aggregation Layer -----
         self.aggregation_LSTM = nn.LSTM(
-            input_size=num_perspective * 8,
+            input_size=num_perspective * self.num_matching,
             hidden_size=aggregation_lstm_dim,
             num_layers=self.aggregation_layer_num,
             bidirectional=True,
@@ -181,13 +189,13 @@ class BIMPM(nn.Module):
         assert con_p.size() == (batch_size, seq_len_p, self.context_lstm_dim * 2)
         assert con_h.size() == (batch_size, seq_len_h, self.context_lstm_dim * 2)
 
-        # (batch, seq_len, context_lstm_dim * 2) -> (batch, seq_len, num_perspective * 8)
+        # (batch, seq_len, context_lstm_dim * 2) -> (batch, seq_len, num_perspective * num_matching)
         mv_p, mv_h = self.matching_layer(con_p, con_h)
-        assert mv_p.size() == (batch_size, seq_len_p, self.num_perspective * 8)
-        assert mv_h.size() == (batch_size, seq_len_h, self.num_perspective * 8)
+        assert mv_p.size() == (batch_size, seq_len_p, self.num_perspective * self.num_matching)
+        assert mv_h.size() == (batch_size, seq_len_h, self.num_perspective * self.num_matching)
 
         # ----- Aggregation Layer -----
-        # (batch, seq_len, num_perspective * 8) -> 
+        # (batch, seq_len, num_perspective * num_matching) -> 
         # (2 * aggregation_layer_num, batch, aggregation_lstm_dim)
         _, (agg_p_last, _) = self.aggregation_LSTM(mv_p)
         _, (agg_h_last, _) = self.aggregation_LSTM(mv_h)
