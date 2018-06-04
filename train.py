@@ -98,8 +98,8 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError('only SNLI or Quora data is possible')
         
-    if int(args.wo_full_match) + int(args.wo_maxpool_match) + int(args.wo_attentive_match) + int(args.wo_max_attentive_match) > 1:
-        raise ValueError('Only one of the matching can be disabled')
+    if int(args.wo_full_match) + int(args.wo_maxpool_match) + int(args.wo_attentive_match) + int(args.wo_max_attentive_match) == 4:
+        raise ValueError('At least one of the matching should be enabled')
 
     model_dir = "saved_models_" + datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
     if not os.path.exists(model_dir):
