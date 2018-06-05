@@ -107,10 +107,12 @@ if __name__ == '__main__':
         
     print("Creating model...")
     pretrained_word_embedding = data.TEXT.vocab.vectors
+    pretrained_char_embedding = data.char_vocab.vectors
     char_vocab_size = len(data.char_vocab)
     class_size = len(data.LABEL.vocab)
 
     model = BIMPM(pretrained_word_embedding, 
+                  pretrained_char_embedding,
                   char_vocab_size, 
                   class_size, 
                   word_dim=args.word_dim, 
