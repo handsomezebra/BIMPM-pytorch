@@ -90,6 +90,15 @@ class BIMPM(nn.Module):
         )
 
         self.init_parameters(pretrained_word_embedding, pretrained_char_embedding)
+        
+    def init_lstm(self, lstm_layer):
+        for name, param in lstm_layer.named_parameters():
+            if name.startswith("weight_ih"):
+                nn.init.kaiming_normal_(param)
+            elif name.startswith("weight_hh"):
+                nn.init.orthogonal_(param)
+            elif name.startswith("bias"):
+                nn.init.constant_(param, val=0)
 
     def init_parameters(self, pretrained_word_embedding, pretrained_char_embedding):
         # ----- Word Representation Layer -----
@@ -119,32 +128,13 @@ class BIMPM(nn.Module):
                 
             self.char_emb.weight.data[1].fill_(0)
             
-            nn.init.kaiming_normal_(self.char_LSTM.weight_ih_l0)
-            nn.init.constant_(self.char_LSTM.bias_ih_l0, val=0)
-            nn.init.orthogonal_(self.char_LSTM.weight_hh_l0)
-            nn.init.constant_(self.char_LSTM.bias_hh_l0, val=0)
+            self.init_lstm(self.char_LSTM)
 
         # ----- Context Representation Layer -----
-        nn.init.kaiming_normal_(self.context_LSTM.weight_ih_l0)
-        nn.init.constant_(self.context_LSTM.bias_ih_l0, val=0)
-        nn.init.orthogonal_(self.context_LSTM.weight_hh_l0)
-        nn.init.constant_(self.context_LSTM.bias_hh_l0, val=0)
-
-        nn.init.kaiming_normal_(self.context_LSTM.weight_ih_l0_reverse)
-        nn.init.constant_(self.context_LSTM.bias_ih_l0_reverse, val=0)
-        nn.init.orthogonal_(self.context_LSTM.weight_hh_l0_reverse)
-        nn.init.constant_(self.context_LSTM.bias_hh_l0_reverse, val=0)
+        self.init_lstm(self.context_LSTM)
 
         # ----- Aggregation Layer -----
-        nn.init.kaiming_normal_(self.aggregation_LSTM.weight_ih_l0)
-        nn.init.constant_(self.aggregation_LSTM.bias_ih_l0, val=0)
-        nn.init.orthogonal_(self.aggregation_LSTM.weight_hh_l0)
-        nn.init.constant_(self.aggregation_LSTM.bias_hh_l0, val=0)
-
-        nn.init.kaiming_normal_(self.aggregation_LSTM.weight_ih_l0_reverse)
-        nn.init.constant_(self.aggregation_LSTM.bias_ih_l0_reverse, val=0)
-        nn.init.orthogonal_(self.aggregation_LSTM.weight_hh_l0_reverse)
-        nn.init.constant_(self.aggregation_LSTM.bias_hh_l0_reverse, val=0)
+        self.init_lstm(self.aggregation_LSTM)
 
         # ----- Prediction Layer ----
         nn.init.uniform_(self.pred_fc1.weight, -0.005, 0.005)
