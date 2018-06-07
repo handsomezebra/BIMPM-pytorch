@@ -105,16 +105,21 @@ if __name__ == '__main__':
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
         
-    print("Creating model...")
     pretrained_word_embedding = data.TEXT.vocab.vectors
+    word_vocab_size = len(data.TEXT.vocab)
     pretrained_char_embedding = data.char_vocab.vectors
     char_vocab_size = len(data.char_vocab)
     class_size = len(data.LABEL.vocab)
 
-    model = BIMPM(pretrained_word_embedding, 
-                  pretrained_char_embedding,
+    print(f"Creating model with class_size: {class_size}, word_vocab_size: {word_vocab_size}, char_vocab_size: {char_vocab_size}")
+    print(f"pretrained_word_embedding: {pretrained_word_embedding}")
+    print(f"pretrained_char_embedding: {pretrained_char_embedding}")
+
+    model = BIMPM(class_size,
+                  word_vocab_size,
                   char_vocab_size, 
-                  class_size, 
+                  pretrained_word_embedding=pretrained_word_embedding,
+                  pretrained_char_embedding=pretrained_char_embedding,
                   word_dim=args.word_dim, 
                   char_dim=args.char_dim, 
                   num_perspective=args.num_perspective, 

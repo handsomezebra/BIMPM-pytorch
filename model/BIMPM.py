@@ -3,12 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .matching_layer import MatchingLayer
+eps = 1e-8
 
 class BIMPM(nn.Module):
     def __init__(self, 
-        pretrained_word_embedding, pretrained_char_embedding, char_vocab_size, class_size, 
-        num_perspective=20, word_dim=300, dropout=0.1, 
-        use_char_emb=True, char_dim=20, char_lstm_dim=50, 
+        class_size, word_vocab_size, char_vocab_size,
+        pretrained_word_embedding=None, pretrained_char_embedding=None,
+        num_perspective=20, word_dim=300, dropout=0.1, fix_word_vec=True,
+        use_char_emb=True, char_dim=20, char_lstm_dim=50, fix_char_vec=False,
         context_lstm_dim=100, context_layer_num=2, 
         aggregation_lstm_dim=100, aggregation_layer_num=2, 
         wo_full_match=False, wo_maxpool_match=False, 
@@ -30,16 +32,16 @@ class BIMPM(nn.Module):
         assert self.num_matching > 0
 
         # ----- Word Representation Layer -----
-        self.word_emb = nn.Embedding(len(pretrained_word_embedding), word_dim)
-        # initialize word embedding with GloVe
-        self.word_emb.weight.data.copy_(pretrained_word_embedding)
-        # no fine-tuning for word vectors
-        self.word_emb.weight.requires_grad = False
+        assert pretrained_word_embedding is None or len(pretrained_word_embedding) == word_vocab_size
+        self.word_emb = nn.Embedding(word_vocab_size, word_dim, padding_idx=1)
+        if fix_word_vec:
+            self.word_emb.weight.requires_grad = False
 
         if use_char_emb:
-            self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=0)
-            self.char_emb.weight.data.copy_(pretrained_char_embedding)
-            self.char_emb.weight.requires_grad = False
+            assert pretrained_char_embedding is None or len(pretrained_char_embedding) == char_vocab_size
+            self.char_emb = nn.Embedding(char_vocab_size, char_dim, padding_idx=1)
+            if fix_char_vec:
+                self.char_emb.weight.requires_grad = False
 
             self.char_LSTM = nn.LSTM(
                 input_size=char_dim,
@@ -87,18 +89,35 @@ class BIMPM(nn.Module):
             self.class_size
         )
 
-        self.init_parameters()
+        self.init_parameters(pretrained_word_embedding, pretrained_char_embedding)
 
-    def init_parameters(self):
+    def init_parameters(self, pretrained_word_embedding, pretrained_char_embedding):
         # ----- Word Representation Layer -----
 
         # <unk> vectors is randomly initialized
-        nn.init.uniform_(self.word_emb.weight.data[0], -0.1, 0.1)
+        if pretrained_word_embedding is not None:
+            self.word_emb.weight.data.copy_(pretrained_word_embedding)
+            nn.init.uniform_(self.word_emb.weight.data[0], -0.005, 0.005)
+            for data in self.word_emb.weight.data[2:]:
+                if (data.abs() < eps).all():
+                    nn.init.uniform_(data, -0.005, 0.005)
+        else:
+            nn.init.uniform_(self.word_emb.weight, -0.005, 0.005)
+            
+        self.word_emb.weight.data[1].fill_(0)
 
         if self.use_char_emb:
-            nn.init.uniform_(self.char_emb.weight, -0.005, 0.005)
-            # zero vectors for padding
-            self.char_emb.weight.data[0].fill_(0)
+            # <unk> vectors is randomly initialized
+            if pretrained_char_embedding is not None:
+                self.char_emb.weight.data.copy_(pretrained_char_embedding)
+                nn.init.uniform_(self.char_emb.weight.data[0], -0.005, 0.005)
+                for data in self.char_emb.weight.data[2:]:
+                    if (data.abs() < eps).all():
+                        nn.init.uniform_(data, -0.005, 0.005)
+            else:
+                nn.init.uniform_(self.char_emb.weight, -0.005, 0.005)
+                
+            self.char_emb.weight.data[1].fill_(0)
             
             nn.init.kaiming_normal_(self.char_LSTM.weight_ih_l0)
             nn.init.constant_(self.char_LSTM.bias_ih_l0, val=0)

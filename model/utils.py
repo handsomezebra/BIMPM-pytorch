@@ -11,6 +11,20 @@ from torchtext.vocab import GloVe, Vectors, Vocab
 def tokenizer(text): # create a tokenizer function
     return text.split(' ')
     
+    
+rep_dict = {
+    "``": "\"",
+    "''": "\"",
+    "-LRB-": "(",
+    "-RRB-": ")",
+    "-LSB-": "[",
+    "-RSB-": "]",
+}
+
+def preprocessor(token_list):
+    result = [rep_dict.get(x, x) for x in token_list]
+    return result
+    
 class GloVeChar(Vectors):
     url = {
         '840B': 'https://raw.githubusercontent.com/minimaxir/char-embeddings/master/glove.840B.300d-char.txt',
@@ -31,7 +45,7 @@ class Paraphrase():
             for ch in word:
                 char_counter[ch] += count
         
-        self.char_vocab = Vocab(char_counter, specials=['<unk>', '<pad>'], vectors = GloVeChar())
+        self.char_vocab = Vocab(char_counter, specials=['<unk>', '<pad>'])
 
     def characterize_word(self, word_id, max_word_len):
         word_text = self.TEXT.vocab.itos[word_id]
@@ -87,7 +101,7 @@ class SNLI(Paraphrase):
     
         super().__init__(args)
         
-        self.TEXT = data.Field(batch_first=True, tokenize="spacy", lower=True)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, tokenize="spacy", lower=True)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
@@ -108,7 +122,7 @@ class Quora(Paraphrase):
         super().__init__(args)
 
         self.RAW = data.RawField()
-        self.TEXT = data.Field(batch_first=True, tokenize=tokenizer)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, tokenize=tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = data.TabularDataset.splits(
