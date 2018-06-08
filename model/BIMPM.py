@@ -26,7 +26,7 @@ class BIMPM(nn.Module):
         self.aggregation_layer_num = aggregation_layer_num
         self.char_lstm_dim = char_lstm_dim
         self.dropout = dropout
-        self.word_rep_dim = word_dim + int(use_char_emb) * char_lstm_dim
+        self.word_rep_dim = word_dim + int(use_char_emb) * 2 * char_lstm_dim
         self.num_perspective = num_perspective
         self.num_matching = 8 - 2 * (int(wo_full_match) + int(wo_maxpool_match) + int(wo_attentive_match) + int(wo_max_attentive_match))
         assert self.num_matching > 0
@@ -47,7 +47,8 @@ class BIMPM(nn.Module):
                 input_size=char_dim,
                 hidden_size=char_lstm_dim,
                 num_layers=1,
-                bidirectional=False,
+                dropout=self.dropout,
+                bidirectional=True,
                 batch_first=True)
 
         # ----- Context Representation Layer -----
@@ -153,11 +154,14 @@ class BIMPM(nn.Module):
         # (batch * seq_len, max_word_len) -> (batch * seq_len, max_word_len, char_dim)
         char_data = self.char_emb(char_data)
 
-        # (batch * seq_len, max_word_len, char_dim)-> (1, batch * seq_len, char_lstm_dim)
+        # (batch * seq_len, max_word_len, char_dim)-> (2, batch * seq_len, char_lstm_dim)
         _, (char_data, _) = self.char_LSTM(char_data)
+        
+        # (2, batch * seq_len, char_lstm_dim) -> (batch * seq_len, 2, char_lstm_dim)
+        char_data = char_data.permute(1, 0, 2).contiguous()
 
-        # (batch, seq_len, char_lstm_dim)
-        char_data = char_data.view(-1, seq_len, self.char_lstm_dim)
+        # (batch * seq_len, 2, char_lstm_dim) -> (batch, seq_len, 2 * char_lstm_dim)
+        char_data = char_data.view(-1, seq_len, 2 * self.char_lstm_dim)
         
         return char_data
         
@@ -213,6 +217,7 @@ class BIMPM(nn.Module):
         assert agg_p_last.size() == agg_h_last.size() == (2 * self.aggregation_layer_num, batch_size, self.aggregation_lstm_dim)
 
         # 2 * (2 * aggregation_layer_num, batch, aggregation_lstm_dim) -> 
+        # 2 * (batch, 2 * aggregation_layer_num, aggregation_lstm_dim) -> 
         # 2 * (batch, aggregation_lstm_dim * 2 * aggregation_layer_num) -> 
         # (batch, 2 * aggregation_lstm_dim * 2 * aggregation_layer_num)
         x = torch.cat(
