@@ -119,7 +119,7 @@ class BIMPM(nn.Module):
             if fix_char_vec:
                 self.char_emb.weight.requires_grad = False
 
-            self.char_LSTM = nn.LSTM(
+            self.char_LSTM = LSTM_V(
                 input_size=char_dim,
                 hidden_size=char_lstm_dim,
                 num_layers=1,
@@ -224,6 +224,9 @@ class BIMPM(nn.Module):
         
     def char_repr(self, char_data, char_data_len):
         # char_data: (batch, seq_len, max_word_len)
+        # char_data_len: (batch, seq_len)
+        assert char_data.size(0) == char_data_len.size(0)
+        assert char_data.size(1) == char_data_len.size(1)
         seq_len, word_len = char_data.size(1), char_data.size(2)
 
         # (batch, seq_len, max_word_len) -> (batch * seq_len, max_word_len)
@@ -232,8 +235,11 @@ class BIMPM(nn.Module):
         # (batch * seq_len, max_word_len) -> (batch * seq_len, max_word_len, char_dim)
         char_data = self.char_emb(char_data)
 
+        # (batch, seq_len) -> (batch * seq_len)
+        char_data_len = char_data_len.view(-1)
+
         # (batch * seq_len, max_word_len, char_dim)-> (2, batch * seq_len, char_lstm_dim)
-        _, (char_data, _) = self.char_LSTM(char_data)
+        _, (char_data, _) = self.char_LSTM(char_data, char_data_len)
         
         # (2, batch * seq_len, char_lstm_dim) -> (batch * seq_len, 2, char_lstm_dim)
         char_data = char_data.permute(1, 0, 2).contiguous()

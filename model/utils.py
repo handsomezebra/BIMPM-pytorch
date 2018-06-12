@@ -91,8 +91,10 @@ class Paraphrase():
                 current_char_len.append(cl)
 
             for i in range(padding_len):
-                current_char_result.append([1] * max_word_len)
-            current_char_len.extend([0] * padding_len)
+                # <unk> <pad> <pad> ...
+                current_char_result.append([0] + [1] * (max_word_len - 1))
+            # all length are 1
+            current_char_len.extend([1] * padding_len)
 
             char_result.append(current_char_result)
             char_len.append(current_char_len)
