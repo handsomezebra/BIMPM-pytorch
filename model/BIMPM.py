@@ -283,7 +283,7 @@ class BIMPM(nn.Module):
             char_p, char_p_len, char_h, char_h_len = kwargs['char_p'], kwargs['char_p_len'], kwargs['char_h'], kwargs['char_h_len']
             assert p.size(1) == char_p.size(1) and h.size(1) == char_h.size(1)
         else:
-            char_p, char_h = None, None
+            char_p, char_p_len, char_h, char_h_len = None, None, None, None
         
         # (batch, seq_len) -> (batch, seq_len, context_lstm_dim * 2)
         con_p = self.context_repr(p, p_len, char_p, char_p_len)

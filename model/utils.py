@@ -141,7 +141,9 @@ class SNLI(Paraphrase):
     
         super().__init__(args)
         
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=args.max_sent_len, include_lengths=True, tokenize="spacy", lower=True)
+        fix_length = args.max_sent_len if args.max_sent_len >=0 else None
+        
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize="spacy", lower=True)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
@@ -161,8 +163,10 @@ class Quora(Paraphrase):
     def __init__(self, args):
         super().__init__(args)
 
+        fix_length = args.max_sent_len if args.max_sent_len >=0 else None
+        
         self.RAW = data.RawField()
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=args.max_sent_len, include_lengths=True, tokenize=tokenizer)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize=tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = data.TabularDataset.splits(

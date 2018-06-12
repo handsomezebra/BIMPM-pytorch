@@ -12,23 +12,6 @@ def mp_matching_func(v1, v2, w):
     seq_len = v1.size(1)
     num_perspective = w.size()[0]
 
-    # Trick for large memory requirement
-    """
-    if len(v2.size()) == 2:
-        v2 = torch.stack([v2] * seq_len, dim=1)
-
-    m = []
-    for i in range(self.num_perspective):
-        # v1: (batch, seq_len, hidden_size)
-        # v2: (batch, seq_len, hidden_size)
-        # w: (1, 1, hidden_size)
-        # -> (batch, seq_len)
-        m.append(F.cosine_similarity(w[i].view(1, 1, -1) * v1, w[i].view(1, 1, -1) * v2, dim=2))
-
-    # list of (batch, seq_len) -> (batch, seq_len, num_perspective)
-    m = torch.stack(m, dim=2)
-    """
-
     # (1, 1, hidden_size, num_perspective)
     w = w.transpose(1, 0).unsqueeze(0).unsqueeze(0)
     # (batch, seq_len, hidden_size, num_perspective)
@@ -50,28 +33,6 @@ def mp_matching_func_pairwise(v1, v2, w):
     :return: (batch, num_perspective, seq_len1, seq_len2)
     """
 
-    # Trick for large memory requirement
-    """
-    m = []
-    for i in range(self.num_perspective):
-        # (1, 1, hidden_size)
-        w_i = w[i].view(1, 1, -1)
-        # (batch, seq_len1, hidden_size), (batch, seq_len2, hidden_size)
-        v1, v2 = w_i * v1, w_i * v2
-        # (batch, seq_len, hidden_size->1)
-        v1_norm = v1.norm(p=2, dim=2, keepdim=True)
-        v2_norm = v2.norm(p=2, dim=2, keepdim=True)
-
-        # (batch, seq_len1, seq_len2)
-        n = torch.matmul(v1, v2.permute(0, 2, 1))
-        d = v1_norm * v2_norm.permute(0, 2, 1)
-
-        m.append(div_with_small_value(n, d))
-
-    # list of (batch, seq_len1, seq_len2) -> (batch, seq_len1, seq_len2, num_perspective)
-    m = torch.stack(m, dim=3)
-    """
-    
     num_perspective = w.size()[0]
 
     # (1, num_perspective, 1, hidden_size)
