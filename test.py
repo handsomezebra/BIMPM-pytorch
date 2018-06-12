@@ -37,7 +37,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model-path', required=True)
     parser.add_argument('--batch-size', default=16, type=int)
-    parser.add_argument('--data-type', default='SNLI', help='available: SNLI or Quora')
+    parser.add_argument('--data-type', default='Quora', help='available: SNLI or Quora')
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--max-sent-len', default=-1, type=int,
                         help='max number of words per sentence, if -1, it accepts any length')
@@ -59,6 +59,8 @@ if __name__ == '__main__':
 
     if args.gpu > -1:
         model.cuda(args.gpu)
+    else:
+        model.cpu()
 
     print(model)
 
