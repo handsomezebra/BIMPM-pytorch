@@ -48,52 +48,90 @@ class Paraphrase():
         self.char_vocab = Vocab(char_counter, specials=['<unk>', '<pad>'])
 
     def characterize_word(self, word_id, max_word_len):
-        word_text = self.TEXT.vocab.itos[word_id]
-        result = [self.char_vocab.stoi[ch] for ch in word_text[:max_word_len]]
-        result.extend([1] * (max_word_len - len(result)))
-        return result
-        
-    def characterize(self, batch, max_word_len):
+        w = self.TEXT.vocab.itos[word_id]
+        w_char = [self.char_vocab.stoi[ch] for ch in w[:max_word_len]]
+        word_len = len(w_char)
+        w_char.extend([1] * (max_word_len - word_len))
+
+        return w_char, word_len
+
+    def characterize(self, batch, length):
         """
         :param batch: Pytorch Variable with shape (batch, seq_len)
+        :param length: Pytorch Variable with shape (batch)
         :return: Pytorch Variable with shape (batch, seq_len, max_word_len)
         """
         batch = batch.tolist()
-        actual_max_word_len = max([max([len(self.TEXT.vocab.itos[w]) for w in words]) for words in batch])
-        
-        if max_word_len <= 0:
+        length = length.tolist()
+        assert len(batch) == len(length) > 0
+        actual_max_word_len = 0
+        for idx, sent in enumerate(batch):
+            sent_len = length[idx]
+            assert sent_len <= len(sent)
+            actual_max_word_len = max(actual_max_word_len, max([len(self.TEXT.vocab.itos[w_id]) for w_id in sent[:sent_len]]))
+
+        if self.args.max_word_len <= 0:
             max_word_len = actual_max_word_len
         else:
-            max_word_len = min(actual_max_word_len, max_word_len)
+            max_word_len = min(actual_max_word_len, self.args.max_word_len)
                 
         assert(max_word_len > 0)
-                
-        return [[self.characterize_word(w, max_word_len) for w in words] for words in batch]
 
-    def get_features(self, batch, max_sent_len = -1, max_word_len = -1):
+        char_result = []
+        char_len = []
+        for idx, sent in enumerate(batch):
+            sent_len = length[idx]
+            assert sent_len <= len(sent)
+            padding_len = len(sent) - sent_len
+            current_char_result = []
+            current_char_len = []
+            for w_id in sent[:sent_len]:
+                cr, cl = self.characterize_word(w_id, max_word_len)
+                current_char_result.append(cr)
+                current_char_len.append(cl)
+
+            for i in range(padding_len):
+                current_char_result.append([1] * max_word_len)
+            current_char_len.extend([0] * padding_len)
+
+            char_result.append(current_char_result)
+            char_len.append(current_char_len)
+
+        return Variable(torch.LongTensor(char_result)), Variable(torch.LongTensor(char_len))
+
+    def get_features(self, batch):
         if self.args.data_type == 'SNLI':
             s1, s2 = 'premise', 'hypothesis'
         else:
             s1, s2 = 'q1', 'q2'
             
-        s1, s2 = getattr(batch, s1), getattr(batch, s2)
-        
-        if max_sent_len > 0:
-            s1 = s1[:, :max_sent_len]
-            s2 = s2[:, :max_sent_len]
-        
-        kwargs = {'p': s1, 'h': s2}
+        s1 = getattr(batch, s1)
+        s2 = getattr(batch, s2)
 
-        char_p = Variable(torch.LongTensor(self.characterize(s1, max_word_len)))
-        char_h = Variable(torch.LongTensor(self.characterize(s2, max_word_len)))
+        s1, s1_len = s1[0], s1[1]
+        s2, s2_len = s2[0], s2[1]
+
+        max_p_len = s1_len.max().item()
+        max_h_len = s2_len.max().item()
+
+        s1 = s1[:, :max_p_len]
+        s2 = s2[:, :max_h_len]
+
+        kwargs = {}
+        kwargs.update({'p': s1, 'p_len': s1_len})
+        kwargs.update({'h': s2, 'h_len': s2_len})
+
+        char_p, char_p_len = self.characterize(s1, s1_len)
+        char_h, char_h_len = self.characterize(s2, s2_len)
 
         if self.args.gpu > -1:
             char_p = char_p.cuda(self.args.gpu)
             char_h = char_h.cuda(self.args.gpu)
+            char_p_len = char_p_len.cuda(self.args.gpu)
+            char_h_len = char_h_len.cuda(self.args.gpu)
 
-        kwargs['char_p'] = char_p
-        kwargs['char_h'] = char_h
-            
+        kwargs.update({'char_p': char_p, 'char_p_len': char_p_len, 'char_h': char_h, 'char_h_len': char_h_len})
+
         return kwargs
 
 class SNLI(Paraphrase):
@@ -101,7 +139,7 @@ class SNLI(Paraphrase):
     
         super().__init__(args)
         
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, tokenize="spacy", lower=True)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=args.max_sent_len, include_lengths=True, tokenize="spacy", lower=True)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
@@ -122,7 +160,7 @@ class Quora(Paraphrase):
         super().__init__(args)
 
         self.RAW = data.RawField()
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, tokenize=tokenizer)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=args.max_sent_len, include_lengths=True, tokenize=tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = data.TabularDataset.splits(

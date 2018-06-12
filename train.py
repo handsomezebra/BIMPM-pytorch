@@ -33,7 +33,7 @@ def train(model, model_dir, args, data):
         train_size = 0
             
         for i, batch in enumerate(iterator):
-            kwargs = data.get_features(batch, max_sent_len=args.max_sent_len, max_word_len=args.max_word_len)
+            kwargs = data.get_features(batch)
 
             pred = model(**kwargs)
 
