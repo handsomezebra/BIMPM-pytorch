@@ -1,4 +1,2 @@
-nltk==3.2.4
-torchtext==0.3.0
 torch==0.4.0
-
+torchtext==0.3.0

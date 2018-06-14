@@ -34,11 +34,12 @@ def test(model, args, data, mode='test'):
     return loss, acc, size
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model-path', required=True)
-    parser.add_argument('--batch-size', default=16, type=int)
-    parser.add_argument('--data-type', default='Quora', help='available: SNLI or Quora')
-    parser.add_argument('--gpu', default=0, type=int)
+    parser = argparse.ArgumentParser(
+        formatter_class=lambda prog: argparse.ArgumentDefaultsHelpFormatter(prog, max_help_position=40, width=120))
+    parser.add_argument('--model-path', required=True, help='path of trained model')
+    parser.add_argument('--batch-size', default=16, type=int, help='batch size')
+    parser.add_argument('--data-type', default='Quora', help='data type, available: SNLI or Quora')
+    parser.add_argument('--gpu', default=0, type=int, help='gpu id, -1 to use cpu')
     parser.add_argument('--max-sent-len', default=-1, type=int,
                         help='max number of words per sentence, if -1, it accepts any length')
     parser.add_argument('--max-word-len', default=-1, type=int,

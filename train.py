@@ -62,31 +62,52 @@ def train(model, model_dir, args, data):
         
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--batch-size', default=16, type=int)
-    parser.add_argument('--char-dim', default=20, type=int)
-    parser.add_argument('--char-lstm-dim', default=100, type=int)
-    parser.add_argument('--data-type', default='Quora', help='available: SNLI or Quora')
-    parser.add_argument('--dropout', default=0.1, type=float)
-    parser.add_argument('--epoch', default=10, type=int)
-    parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--context-lstm-dim', default=100, type=int)
-    parser.add_argument('--context-layer-num', default=2, type=int)
-    parser.add_argument('--aggregation-lstm-dim', default=100, type=int)
-    parser.add_argument('--aggregation-layer-num', default=2, type=int)
-    parser.add_argument('--learning-rate', default=0.001, type=float)
-    parser.add_argument('--max-sent-len', default=100, type=int,
+    parser = argparse.ArgumentParser(
+        formatter_class=lambda prog: argparse.ArgumentDefaultsHelpFormatter(prog, max_help_position=40, width=120))
+    parser.add_argument('--data-type', default='Quora', 
+                        help='data type, available: SNLI or Quora')
+    parser.add_argument('--batch-size', default=48, type=int,
+                        help='batch size')
+    parser.add_argument('--epoch', default=20, type=int,
+                        help='number of epoch')
+    parser.add_argument('--gpu', default=0, type=int,
+                        help='gpu id, -1 to use cpu')
+    parser.add_argument('--print-freq', default=500, type=int,
+                        help='number of batches to evaluate and checkpoint')
+    parser.add_argument('--dropout', default=0.1, type=float,
+                        help='dropout rate')
+    parser.add_argument('--learning-rate', default=0.001, type=float,
+                        help='learning rate')
+    parser.add_argument('--max-sent-len', default=-1, type=int,
                         help='max number of words per sentence, if -1, it accepts any length')
-    parser.add_argument('--max-word-len', default=10, type=int,
+    parser.add_argument('--max-word-len', default=-1, type=int,
                         help='max number of chars per word, if -1, it accepts any length')
-    parser.add_argument('--num-perspective', default=20, type=int)
-    parser.add_argument('--print-freq', default=500, type=int)
-    parser.add_argument('--wo-char', default=False, action='store_true')
-    parser.add_argument('--word-dim', default=300, type=int)
-    parser.add_argument('--wo-full-match', default=False, action='store_true')
-    parser.add_argument('--wo-maxpool-match', default=False, action='store_true')
-    parser.add_argument('--wo-attentive-match', default=False, action='store_true')
-    parser.add_argument('--wo-max-attentive-match', default=False, action='store_true')
+    parser.add_argument('--num-perspective', default=20, type=int,
+                        help='number of perspective')
+    parser.add_argument('--word-dim', default=300, type=int,
+                        help='word embedding dimension')
+    parser.add_argument('--char-dim', default=20, type=int,
+                        help='character embedding dimension')
+    parser.add_argument('--char-lstm-dim', default=100, type=int,
+                        help='character LSTM\'s hidden size')
+    parser.add_argument('--context-lstm-dim', default=100, type=int,
+                        help='context LSTM\'s hidden size')
+    parser.add_argument('--context-layer-num', default=2, type=int,
+                        help='context LSTM\'s layer number')
+    parser.add_argument('--aggregation-lstm-dim', default=100, type=int,
+                        help='aggregation LSTM\'s hidden size')
+    parser.add_argument('--aggregation-layer-num', default=2, type=int,
+                        help='aggregation LSTM\'s layer number')
+    parser.add_argument('--wo-char', default=False, action='store_true',
+                        help='whether to learn without character features')
+    parser.add_argument('--wo-full-match', default=False, action='store_true',
+                        help='whether to learn without full match')
+    parser.add_argument('--wo-maxpool-match', default=False, action='store_true',
+                        help='whether to learn without max pool match')
+    parser.add_argument('--wo-attentive-match', default=False, action='store_true',
+                        help='whether to learn without attentive match')
+    parser.add_argument('--wo-max-attentive-match', default=False, action='store_true',
+                        help='whether to learn without max attentive match')
     args = parser.parse_args()
 
     if args.data_type == 'SNLI':

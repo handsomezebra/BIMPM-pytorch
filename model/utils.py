@@ -24,16 +24,7 @@ rep_dict = {
 def preprocessor(token_list):
     result = [rep_dict.get(x, x) for x in token_list]
     return result
-    
-class GloVeChar(Vectors):
-    url = {
-        '840B': 'https://raw.githubusercontent.com/minimaxir/char-embeddings/master/glove.840B.300d-char.txt',
-    }
 
-    def __init__(self, name='840B', dim=300, **kwargs):
-        url = self.url[name]
-        name = 'glove.{}.{}d-char.txt'.format(name, str(dim))
-        super(GloVeChar, self).__init__(name, url=url, **kwargs)
 
 class Paraphrase():
     def __init__(self, args):
@@ -143,7 +134,7 @@ class SNLI(Paraphrase):
         
         fix_length = args.max_sent_len if args.max_sent_len >=0 else None
         
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize="spacy", lower=True)
+        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize="spacy")
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
