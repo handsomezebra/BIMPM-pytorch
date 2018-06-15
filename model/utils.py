@@ -36,11 +36,17 @@ class Paraphrase():
             for ch in word:
                 char_counter[ch] += count
         
-        self.char_vocab = Vocab(char_counter, specials=['<unk>', '<pad>'])
+        self.char_vocab = Vocab(char_counter, specials=['<unk>', '<pad>', '<w>', '</w>'])
 
     def characterize_word(self, word_id, max_word_len):
-        w = self.TEXT.vocab.itos[word_id]
-        w_char = [self.char_vocab.stoi[ch] for ch in w[:max_word_len]]
+        if word_id in range(4): # for <unk>, <pad>, <s> and </s>
+            w_char = [2, 3]
+        else:
+            w_char = [2]
+            w = self.TEXT.vocab.itos[word_id]
+            w_char += [self.char_vocab.stoi[ch] for ch in w[:max_word_len]]
+            w_char += [3]
+            
         word_len = len(w_char)
         w_char.extend([1] * (max_word_len - word_len))
 
@@ -58,21 +64,22 @@ class Paraphrase():
         actual_max_word_len = 0
         for idx, sent in enumerate(batch):
             sent_len = length[idx]
-            assert sent_len <= len(sent)
-            actual_max_word_len = max(actual_max_word_len, max([len(self.TEXT.vocab.itos[w_id]) for w_id in sent[:sent_len]]))
+            assert 2 <= sent_len <= len(sent)
+            # get max length of word, excluding <s> and </s>
+            actual_max_word_len = max(actual_max_word_len, max([len(self.TEXT.vocab.itos[w_id]) for w_id in sent[1:sent_len-1]]))
 
         if self.args.max_word_len <= 0:
             max_word_len = actual_max_word_len
         else:
             max_word_len = min(actual_max_word_len, self.args.max_word_len)
-                
+
         assert(max_word_len > 0)
+        max_word_len += 2 # adding <w> and </w>
 
         char_result = []
         char_len = []
         for idx, sent in enumerate(batch):
             sent_len = length[idx]
-            assert sent_len <= len(sent)
             padding_len = len(sent) - sent_len
             current_char_result = []
             current_char_len = []
@@ -134,7 +141,7 @@ class SNLI(Paraphrase):
         
         fix_length = args.max_sent_len if args.max_sent_len >=0 else None
         
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize="spacy")
+        self.TEXT = data.Field(batch_first=True, init_token="<s>", eos_token="</s>", preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize="spacy")
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = datasets.SNLI.splits(self.TEXT, self.LABEL)
@@ -157,7 +164,7 @@ class Quora(Paraphrase):
         fix_length = args.max_sent_len if args.max_sent_len >=0 else None
         
         self.RAW = data.RawField()
-        self.TEXT = data.Field(batch_first=True, preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize=tokenizer)
+        self.TEXT = data.Field(batch_first=True, init_token="<s>", eos_token="</s>", preprocessing=preprocessor, fix_length=fix_length, include_lengths=True, tokenize=tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None)
 
         self.train, self.dev, self.test = data.TabularDataset.splits(
