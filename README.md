@@ -1,6 +1,6 @@
 # BIMPM-pytorch
 Re-implementation of [BIMPM](https://arxiv.org/abs/1702.03814)(Bilateral Multi-Perspective Matching for Natural Language Sentences, Zhiguo Wang et al., IJCAI 2017) on Pytorch.
-The code is forked from [this version](https://github.com/galsang/BIMPM-pytorch) with several improvements. 
+This code is forked from [galsang's version](https://github.com/galsang/BIMPM-pytorch) with several improvements. 
 
 ## Results
 
@@ -10,7 +10,7 @@ Dataset: [SNLI](https://nlp.stanford.edu/projects/snli/)
 |--------------|:----------:|
 | BiMPM paper (Single BiMPM)	|  86.9    |    
 | galsang's version |			 86.5 |  
-| Re-implementation |			 86.2 |  
+| **This implementation** |			 86.6 |  
 
 Dataset: [Quora](https://drive.google.com/file/d/0B0PlTAo--BnaQWlsZl9FZ3l1c28/view) (provided by the authors)
 
@@ -18,7 +18,7 @@ Dataset: [Quora](https://drive.google.com/file/d/0B0PlTAo--BnaQWlsZl9FZ3l1c28/vi
 |--------------|:----------:|
 | BiMPM paper (Single BiMPM)     	|  88.17   |
 | galsang's version 			| 87.3 |  
-| Re-implementation 			| 88.0 |  
+| **This implementation** 			| 88.0 |  
 
 ## Development Environment
 - OS: Ubuntu 16.04 LTS (64bit)
