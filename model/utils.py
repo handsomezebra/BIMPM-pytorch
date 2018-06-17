@@ -40,7 +40,7 @@ class Paraphrase():
 
     def characterize_word(self, word_id, max_word_len):
         if word_id in range(4): # for <unk>, <pad>, <s> and </s>
-            w_char = [2, 3]
+            w_char = [0]
         else:
             w_char = [2]
             w = self.TEXT.vocab.itos[word_id]
@@ -88,10 +88,10 @@ class Paraphrase():
                 current_char_result.append(cr)
                 current_char_len.append(cl)
 
+            # padding the sentence with [<unk> <pad> <pad> ...] 
+            # since pack_padded_sequence doesn't accept zero length input
             for i in range(padding_len):
-                # <unk> <pad> <pad> ...
                 current_char_result.append([0] + [1] * (max_word_len - 1))
-            # all length are 1
             current_char_len.extend([1] * padding_len)
 
             char_result.append(current_char_result)

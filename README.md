@@ -10,7 +10,7 @@ Dataset: [SNLI](https://nlp.stanford.edu/projects/snli/)
 |--------------|:----------:|
 | BiMPM paper (Single BiMPM)	|  86.9    |    
 | galsang's version |			 86.5 |  
-| **This implementation** |			 86.7 |  
+| **This implementation** |			 86.9 |  
 
 Dataset: [Quora](https://drive.google.com/file/d/0B0PlTAo--BnaQWlsZl9FZ3l1c28/view) (provided by the authors)
 
