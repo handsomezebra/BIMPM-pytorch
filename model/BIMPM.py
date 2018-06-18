@@ -51,9 +51,9 @@ class LSTM_V(nn.Module):
         """
         """sort"""
         x_sort_idx = np.argsort(-x_len)
-        x_unsort_idx = torch.LongTensor(np.argsort(x_sort_idx))
+        x_unsort_idx = np.argsort(x_sort_idx)
         x_len = x_len[x_sort_idx]
-        x = x[torch.LongTensor(x_sort_idx)]
+        x = x[x_sort_idx]
 
         """pack"""
         x_emb_p = torch.nn.utils.rnn.pack_padded_sequence(x, x_len, batch_first=self.batch_first)
