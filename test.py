@@ -1,3 +1,4 @@
+import time
 import argparse
 
 import torch
@@ -12,7 +13,7 @@ def test(model, args, data, mode='test'):
     else:
         iterator = iter(data.test_iter)
 
-    criterion = nn.CrossEntropyLoss(size_average=False)
+    criterion = nn.MSELoss(size_average=False)
     model.eval()
     acc, loss, size = 0, 0, 0
 
@@ -21,11 +22,11 @@ def test(model, args, data, mode='test'):
 
         pred = model(**kwargs)
 
-        batch_loss = criterion(pred, batch.label)
+        batch_loss = criterion(pred, batch.label.float())
         loss += batch_loss.item()
 
-        _, pred = pred.max(dim=1)
-        acc += (pred == batch.label).sum().float()
+        pred = (pred > 0.5)
+        acc += (pred == batch.label.byte()).sum().float()
         size += len(pred)
 
     acc /= size
@@ -47,6 +48,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    print('Loading model...')
+
+    if args.gpu > -1:
+        model = torch.load(args.model_path, map_location=lambda storage, loc: storage.cuda(args.gpu))
+    else:
+        model = torch.load(args.model_path, map_location=lambda storage, loc: storage)
+
+    print(model)
+
     if args.data_type == 'SNLI':
         print('Loading SNLI data...')
         data = SNLI(args)
@@ -54,18 +64,10 @@ if __name__ == '__main__':
         print('Loading Quora data...')
         data = Quora(args)
 
-    print('Loading model...')
-   
-    model = torch.load(args.model_path)
-
-    if args.gpu > -1:
-        model.cuda(args.gpu)
-    else:
-        model.cpu()
-
-    print(model)
-
     print('Doing prediction...')
+    start_time = time.time()
     _, acc, size = test(model, args, data)
 
-    print(f'Test samples {size}, accuracy: {acc:.3f}')
+    time_used = time.time() - start_time
+
+    print(f'Test samples: {size}, accuracy: {acc:.3f}, ms per example: {time_used / size}')

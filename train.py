@@ -15,7 +15,7 @@ def train(model, model_dir, args, data):
 
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = optim.Adam(parameters, lr=args.learning_rate)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.MSELoss()
 
     # saving the initial model
     dev_loss, dev_acc, dev_size = test(model, args, data, mode='dev')
@@ -38,7 +38,7 @@ def train(model, model_dir, args, data):
             pred = model(**kwargs)
 
             optimizer.zero_grad()
-            batch_loss = criterion(pred, batch.label)
+            batch_loss = criterion(pred, batch.label.float())
             current_train_loss = batch_loss.item()
             total_train_loss += current_train_loss * len(pred)
             train_size += len(pred)

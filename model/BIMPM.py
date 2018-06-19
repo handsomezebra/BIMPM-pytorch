@@ -159,13 +159,9 @@ class BIMPM(nn.Module):
         )
 
         # ----- Prediction Layer -----
-        self.pred_fc1 = nn.Linear(
-            self.aggregation_lstm_dim * 4 * self.aggregation_layer_num, 
-            self.aggregation_lstm_dim * 2 * self.aggregation_layer_num
-        )
-        self.pred_fc2 = nn.Linear(
-            self.aggregation_lstm_dim * 2 * self.aggregation_layer_num, 
-            self.class_size
+        self.pred_fc = nn.Linear(
+            self.aggregation_lstm_dim * 2 * self.aggregation_layer_num,
+            self.aggregation_lstm_dim * self.aggregation_layer_num
         )
 
         self.init_parameters(pretrained_word_embedding, pretrained_char_embedding)
@@ -216,11 +212,8 @@ class BIMPM(nn.Module):
         self.init_lstm(self.aggregation_LSTM)
 
         # ----- Prediction Layer ----
-        nn.init.uniform_(self.pred_fc1.weight, -0.005, 0.005)
-        nn.init.constant_(self.pred_fc1.bias, val=0)
-
-        nn.init.uniform_(self.pred_fc2.weight, -0.005, 0.005)
-        nn.init.constant_(self.pred_fc2.bias, val=0)
+        nn.init.xavier_uniform_(self.pred_fc.weight)
+        nn.init.constant_(self.pred_fc.bias, val=0)
         
     def char_repr(self, char_data, char_data_len):
         # char_data: (batch, seq_len, max_word_len)
@@ -306,19 +299,18 @@ class BIMPM(nn.Module):
         # 2 * (2 * aggregation_layer_num, batch, aggregation_lstm_dim) -> 
         # 2 * (batch, 2 * aggregation_layer_num, aggregation_lstm_dim) -> 
         # 2 * (batch, aggregation_lstm_dim * 2 * aggregation_layer_num) -> 
-        # (batch, 2 * aggregation_lstm_dim * 2 * aggregation_layer_num)
-        x = torch.cat(
-            [agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num),
-             agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)], dim=1)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        assert x.size() == (batch_size, 2 * self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
+        p = agg_p_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
+        h = agg_h_last.permute(1, 0, 2).contiguous().view(-1, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
+        assert p.size() == h.size() == (batch_size, 2 * self.aggregation_layer_num * self.aggregation_lstm_dim)
+
+        p = F.dropout(p, p=self.dropout, training=self.training)
+        h = F.dropout(h, p=self.dropout, training=self.training)
 
         # ----- Prediction Layer -----
-        x = F.tanh(self.pred_fc1(x))
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        assert x.size() == (batch_size, self.aggregation_lstm_dim * 2 * self.aggregation_layer_num)
-        
-        x = self.pred_fc2(x)
-        assert x.size() == (batch_size, self.class_size)
+        p = F.tanh(self.pred_fc(p))
+        h = F.tanh(self.pred_fc(h))
+        assert p.size() == h.size() == (batch_size, self.aggregation_layer_num * self.aggregation_lstm_dim)
+
+        x = (F.cosine_similarity(p, h) + 1) * 0.5
 
         return x
