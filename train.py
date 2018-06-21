@@ -76,7 +76,7 @@ if __name__ == '__main__':
                         help='number of batches to evaluate and checkpoint')
     parser.add_argument('--dropout', default=0.1, type=float,
                         help='dropout rate')
-    parser.add_argument('--learning-rate', default=0.001, type=float,
+    parser.add_argument('--learning-rate', default=0.0005, type=float,
                         help='learning rate')
     parser.add_argument('--max-sent-len', default=-1, type=int,
                         help='max number of words per sentence, if -1, it accepts any length')

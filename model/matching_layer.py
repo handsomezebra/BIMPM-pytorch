@@ -72,7 +72,7 @@ def attention(v1, v2):
 
 def div_with_small_value(n, d, eps=1e-8):
     # too small values are replaced by 1e-8 to prevent it from exploding.
-    d = d * (d > eps).float() + eps * (d <= eps).float()
+    d = torch.clamp(d, min=eps)
     return n / d
             
 class MatchingLayer(nn.Module):

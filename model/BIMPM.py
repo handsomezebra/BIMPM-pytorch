@@ -310,10 +310,11 @@ class BIMPM(nn.Module):
         p = F.tanh(self.pred_fc(p))
         h = F.tanh(self.pred_fc(h))
         assert p.size() == h.size() == (batch_size, self.aggregation_layer_num * self.aggregation_lstm_dim)
-        
+
         p = F.dropout(p, p=self.dropout, training=self.training)
         h = F.dropout(h, p=self.dropout, training=self.training)
 
         x = (F.cosine_similarity(p, h) + 1) * 0.5
+        x = torch.clamp(x, min=0.0, max=1.0)
 
         return x
